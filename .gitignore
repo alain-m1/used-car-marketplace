@@ -1,0 +1,95 @@
+# ==========================================
+# Language & Framework Dependencies
+# ==========================================
+# Node.js (React Frontend)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Java (Spring Boot Backend)
+*.class
+*.log
+*.pfx
+*.p12
+*.key
+*.secret
+*.pem
+.mvn/wrapper/maven-wrapper.jar
+
+# Build Directories
+target/
+build/
+dist/
+.next/
+out/
+.gradle/
+
+# ==========================================
+# DevOps & Local Mocking (Docker / Database)
+# ==========================================
+# Local volume data (Blocks massive local DB data from leaking into text tools)
+.data/
+postgres_data/
+redis_data/
+minio_data/
+prometheus_data/
+grafana_data/
+elasticsearch_data/
+nginx_logs/
+backend_uploads/
+backend_logs/
+backups/
+
+# Keep configuration rules but block heavy cache states
+.elastic/
+.jaeger/
+
+# ==========================================
+# Cloud & Local Environment Configs
+# ==========================================
+# Local AWS profiles, credentials, or state files
+.aws/
+.env
+.flaskenv
+.terraform/
+*.tfstate
+*.tfstate.backup
+
+# ==========================================
+# Operating System & IDE Artifacts
+# ==========================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+Ehthumbs.db
+Desktop.ini
+
+# IDEs (VS Code, IntelliJ, Eclipse)
+.idea/
+*.iws
+*.iml
+*.ipr
+.vscode/
+.classpath
+.project
+.settings/
+*.sublime-project
+*.sublime-workspace
+.history/
+
+# ==========================================
+# Code Bundling Tools
+# ==========================================
+# Exclude the output text file from getting bundled inside itself if run repeatedly
+repomix-output.txt
+code2prompt-output.txt
