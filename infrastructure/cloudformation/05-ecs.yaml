@@ -175,7 +175,6 @@ Resources:
   FrontendTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: !Sub '${ProjectName}-${Environment}-fe-tg'
       VpcId:
         Fn::ImportValue: !Sub '${ProjectName}-${Environment}-VPC'
       Protocol: HTTP
@@ -192,7 +191,6 @@ Resources:
   BackendTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
-      Name: !Sub '${ProjectName}-${Environment}-be-tg'
       VpcId:
         Fn::ImportValue: !Sub '${ProjectName}-${Environment}-VPC'
       Protocol: HTTP

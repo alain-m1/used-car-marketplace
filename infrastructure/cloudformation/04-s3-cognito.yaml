@@ -31,7 +31,7 @@ Resources:
   CarImagesBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub ${ProjectName}-${Environment}-car-images
+      BucketName: !Sub ${ProjectName}-${Environment}-${AWS::AccountId}-car-images
       BucketEncryption:
         ServerSideEncryptionConfiguration:
           - ServerSideEncryptionByDefault:
