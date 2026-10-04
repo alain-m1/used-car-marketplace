@@ -60,18 +60,20 @@ public class RedisConfig {
 
     @Bean
     public CacheManager cacheManager(RedisConnectionFactory connectionFactory) {
-        RedisCacheManager.Builder builder = RedisCacheManager.builder(connectionFactory)
-                .cacheDefaults(
-                        org.springframework.data.redis.cache.RedisCacheConfiguration.defaultCacheConfig()
-                                .entryTtl(Duration.ofMinutes(30)) // Default TTL
-                                .serializeKeysWith(
-                                        org.springframework.data.redis.serializer.RedisSerializationContext.SerializationPair
-                                                .fromSerializer(new StringRedisSerializer()))
-                                .serializeValuesWith(
-                                        org.springframework.data.redis.serializer.RedisSerializationContext.SerializationPair
-                                                .fromSerializer(new GenericJackson2JsonRedisSerializer()))
-                );
+        // Step 1: Define the default serialization and TTL behaviors cleanly
+        org.springframework.data.redis.cache.RedisCacheConfiguration cacheConfig =
+                org.springframework.data.redis.cache.RedisCacheConfiguration.defaultCacheConfig()
+                        .entryTtl(Duration.ofMinutes(30)) // Default TTL
+                        .serializeKeysWith(
+                                org.springframework.data.redis.serializer.RedisSerializationContext.SerializationPair
+                                        .fromSerializer(new StringRedisSerializer()))
+                        .serializeValuesWith(
+                                org.springframework.data.redis.serializer.RedisSerializationContext.SerializationPair
+                                        .fromSerializer(new GenericJackson2JsonRedisSerializer()));
 
-        return builder.build();
+        // Step 2: Chain the builder straight to the return statement to bypass inner class name flags
+        return RedisCacheManager.builder(connectionFactory)
+                .cacheDefaults(cacheConfig)
+                .build();
     }
 }

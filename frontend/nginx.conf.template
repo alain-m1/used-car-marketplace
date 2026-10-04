@@ -1,3 +1,7 @@
+# Rendered by the nginx image's envsubst step (see frontend/Dockerfile).
+# Local compose: API_UPSTREAM=http://backend:8080 and nginx proxies /api/.
+# AWS: the ALB listener sends /api/* to the backend target group and everything
+# else to this container, so /api/ never reaches nginx and API_UPSTREAM is unused.
 server {
     listen 80;
     server_name localhost;
@@ -29,16 +33,20 @@ server {
         add_header Cache-Control "public, immutable";
     }
 
-    # API proxy (for production)
+    # API proxy (local compose only; the ALB owns this path in AWS).
+    # The upstream is a variable so nginx resolves it per request: the container
+    # starts even when no "backend" host exists (ECS), instead of failing at boot.
     location /api/ {
-        proxy_pass http://backend:8080;
+        resolver ${NGINX_RESOLVER} valid=10s;
+        set $api_upstream "${API_UPSTREAM}";
+        proxy_pass $api_upstream;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # Health check
+    # Health check (ALB target group health check path)
     location /health {
         access_log off;
         return 200 "healthy\n";

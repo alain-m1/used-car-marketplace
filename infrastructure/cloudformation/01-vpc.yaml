@@ -21,7 +21,7 @@ Parameters:
 
   AvailabilityZones:
     Type: CommaDelimitedList
-    Default: us-west-2a,us-west-2b,us-west-2c
+    Default: us-east-2a,us-east-2b,us-east-2c
     Description: List of Availability Zones
 
 Resources:
@@ -109,6 +109,7 @@ Resources:
       VpcId: !Ref VPC
       AvailabilityZone: !Select [0, !Ref AvailabilityZones]
       CidrBlock: 10.0.11.0/24
+      MapPublicIpOnLaunch: true
       Tags:
         - Key: Name
           Value: !Sub ${ProjectName}-${Environment}-private-subnet-1
@@ -123,6 +124,7 @@ Resources:
       VpcId: !Ref VPC
       AvailabilityZone: !Select [1, !Ref AvailabilityZones]
       CidrBlock: 10.0.12.0/24
+      MapPublicIpOnLaunch: true
       Tags:
         - Key: Name
           Value: !Sub ${ProjectName}-${Environment}-private-subnet-2
@@ -137,6 +139,7 @@ Resources:
       VpcId: !Ref VPC
       AvailabilityZone: !Select [2, !Ref AvailabilityZones]
       CidrBlock: 10.0.13.0/24
+      MapPublicIpOnLaunch: true
       Tags:
         - Key: Name
           Value: !Sub ${ProjectName}-${Environment}-private-subnet-3
@@ -144,61 +147,6 @@ Resources:
           Value: Private
         - Key: kubernetes.io/role/internal-elb
           Value: 1
-
-  # NAT Gateways
-  NatGateway1EIP:
-    Type: AWS::EC2::EIP
-    DependsOn: InternetGatewayAttachment
-    Properties:
-      Domain: vpc
-      Tags:
-        - Key: Name
-          Value: !Sub ${ProjectName}-${Environment}-nat-gw-1-eip
-
-  NatGateway2EIP:
-    Type: AWS::EC2::EIP
-    DependsOn: InternetGatewayAttachment
-    Properties:
-      Domain: vpc
-      Tags:
-        - Key: Name
-          Value: !Sub ${ProjectName}-${Environment}-nat-gw-2-eip
-
-  NatGateway3EIP:
-    Type: AWS::EC2::EIP
-    DependsOn: InternetGatewayAttachment
-    Properties:
-      Domain: vpc
-      Tags:
-        - Key: Name
-          Value: !Sub ${ProjectName}-${Environment}-nat-gw-3-eip
-
-  NatGateway1:
-    Type: AWS::EC2::NatGateway
-    Properties:
-      AllocationId: !GetAtt NatGateway1EIP.AllocationId
-      SubnetId: !Ref PublicSubnet1
-      Tags:
-        - Key: Name
-          Value: !Sub ${ProjectName}-${Environment}-nat-gw-1
-
-  NatGateway2:
-    Type: AWS::EC2::NatGateway
-    Properties:
-      AllocationId: !GetAtt NatGateway2EIP.AllocationId
-      SubnetId: !Ref PublicSubnet2
-      Tags:
-        - Key: Name
-          Value: !Sub ${ProjectName}-${Environment}-nat-gw-2
-
-  NatGateway3:
-    Type: AWS::EC2::NatGateway
-    Properties:
-      AllocationId: !GetAtt NatGateway3EIP.AllocationId
-      SubnetId: !Ref PublicSubnet3
-      Tags:
-        - Key: Name
-          Value: !Sub ${ProjectName}-${Environment}-nat-gw-3
 
   # Route Tables
   PublicRouteTable:
@@ -235,68 +183,23 @@ Resources:
       RouteTableId: !Ref PublicRouteTable
       SubnetId: !Ref PublicSubnet3
 
-  # Private Route Tables
-  PrivateRouteTable1:
-    Type: AWS::EC2::RouteTable
-    Properties:
-      VpcId: !Ref VPC
-      Tags:
-        - Key: Name
-          Value: !Sub ${ProjectName}-${Environment}-private-routes-1
-
-  DefaultPrivateRoute1:
-    Type: AWS::EC2::Route
-    Properties:
-      RouteTableId: !Ref PrivateRouteTable1
-      DestinationCidrBlock: 0.0.0.0/0
-      NatGatewayId: !Ref NatGateway1
-
+  # "Private" subnets converge on the shared public route table (no NAT)
   PrivateSubnet1RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      RouteTableId: !Ref PrivateRouteTable1
+      RouteTableId: !Ref PublicRouteTable
       SubnetId: !Ref PrivateSubnet1
-
-  PrivateRouteTable2:
-    Type: AWS::EC2::RouteTable
-    Properties:
-      VpcId: !Ref VPC
-      Tags:
-        - Key: Name
-          Value: !Sub ${ProjectName}-${Environment}-private-routes-2
-
-  DefaultPrivateRoute2:
-    Type: AWS::EC2::Route
-    Properties:
-      RouteTableId: !Ref PrivateRouteTable2
-      DestinationCidrBlock: 0.0.0.0/0
-      NatGatewayId: !Ref NatGateway2
 
   PrivateSubnet2RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      RouteTableId: !Ref PrivateRouteTable2
+      RouteTableId: !Ref PublicRouteTable
       SubnetId: !Ref PrivateSubnet2
-
-  PrivateRouteTable3:
-    Type: AWS::EC2::RouteTable
-    Properties:
-      VpcId: !Ref VPC
-      Tags:
-        - Key: Name
-          Value: !Sub ${ProjectName}-${Environment}-private-routes-3
-
-  DefaultPrivateRoute3:
-    Type: AWS::EC2::Route
-    Properties:
-      RouteTableId: !Ref PrivateRouteTable3
-      DestinationCidrBlock: 0.0.0.0/0
-      NatGatewayId: !Ref NatGateway3
 
   PrivateSubnet3RouteTableAssociation:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties:
-      RouteTableId: !Ref PrivateRouteTable3
+      RouteTableId: !Ref PublicRouteTable
       SubnetId: !Ref PrivateSubnet3
 
   # Security Groups
@@ -337,4 +240,3 @@ Outputs:
 #    Value: !Ref DefaultSecurityGroup
 #    Export:
 #      Name: !Sub ${ProjectName}-${Environment}-DefaultSecurityGroup
-      

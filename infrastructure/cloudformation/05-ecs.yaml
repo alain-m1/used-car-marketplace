@@ -18,11 +18,17 @@ Resources:
       CapacityProviders:
         - FARGATE
         - FARGATE_SPOT
+      # 100% Fargate Spot. FARGATE stays registered so a service can opt into
+      # on-demand later, but receives no tasks by default (Weight 0, Base 0).
+      # Services that omit CapacityProviderStrategy inherit this default.
+      # Spot tasks can be interrupted with 2 minutes notice - acceptable for dev.
       DefaultCapacityProviderStrategy:
         - CapacityProvider: FARGATE_SPOT
           Weight: 4
+          Base: 0
         - CapacityProvider: FARGATE
-          Weight: 1
+          Weight: 0
+          Base: 0
 
   # Application Load Balancer Security Group
   ALBSecurityGroup:
@@ -89,14 +95,20 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
       Policies:
-        - PolicyName: SecretsManagerAccess
+        # Replaces SecretsManagerAccess. Scoped to the single DB password
+        # parameter (SecureString). ECS calls ssm:GetParameters (plural) when
+        # resolving container Secrets with ValueFrom.
+        # kms:Decrypt is NOT needed while the parameter uses the default
+        # aws/ssm key. Add kms:Decrypt on the key ARN if you switch to a
+        # customer managed key.
+        - PolicyName: SSMParameterAccess
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
                 Action:
-                  - secretsmanager:GetSecretValue
-                Resource: '*'
+                  - ssm:GetParameters
+                Resource: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectName}/${Environment}/db-password'
 
   # ECS Task Role
   ECSTaskRole:

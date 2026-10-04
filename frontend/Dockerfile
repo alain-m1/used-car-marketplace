@@ -1,13 +1,13 @@
 # frontend/Dockerfile
-FROM node:18-alpine as builder
+FROM node:18-alpine AS builder
 
 WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production
+# Install all dependencies (vite/tailwind/postcss are devDependencies needed to build)
+RUN npm ci
 
 # Copy source code
 COPY . .
@@ -18,8 +18,11 @@ RUN npm run build
 # Production stage
 FROM nginx:alpine
 
-# Copy custom nginx config
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# nginx template: the official image renders /etc/nginx/templates/*.template
+# into /etc/nginx/conf.d/ at start-up using the environment variables below
+COPY nginx.conf.template /etc/nginx/templates/default.conf.template
+ENV API_UPSTREAM=http://backend:8080 \
+    NGINX_RESOLVER=127.0.0.11
 
 # Copy built app from builder stage
 COPY --from=builder /app/dist /usr/share/nginx/html

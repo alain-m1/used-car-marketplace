@@ -10,20 +10,17 @@ Parameters:
   
   Environment:
     Type: String
-    Default: production
+    Default: development
     AllowedValues: [production, staging, development]
     Description: Environment name
 
   DBInstanceClass:
     Type: String
-    Default: db.t3.micro
+    Default: db.t4g.micro
     AllowedValues:
-      - db.t3.micro
-      - db.t3.small
-      - db.t3.medium
-      - db.t3.large
-      - db.r5.large
-      - db.r5.xlarge
+      - db.t4g.micro
+      - db.t4g.small
+      - db.t4g.medium
     Description: Database instance class
 
   DBAllocatedStorage:
@@ -155,50 +152,13 @@ Resources:
       BackupRetentionPeriod: !Ref BackupRetentionPeriod
       PreferredBackupWindow: "03:00-04:00"
       PreferredMaintenanceWindow: "sun:04:00-sun:05:00"
-      DeletionProtection: true
-      EnablePerformanceInsights: true
-      PerformanceInsightsRetentionPeriod: 7
-      MonitoringInterval: 60
-      MonitoringRoleArn: !GetAtt RDSEnhancedMonitoringRole.Arn
-      EnableCloudwatchLogsExports:
-        - postgresql
+      PubliclyAccessible: false
+      DeletionProtection: false
+      EnablePerformanceInsights: false
+      MonitoringInterval: 0
       Tags:
         - Key: Name
           Value: !Sub ${ProjectName}-${Environment}-postgres
-        - Key: Project
-          Value: !Ref ProjectName
-        - Key: Environment
-          Value: !Ref Environment
-
-  # Enhanced Monitoring Role
-  RDSEnhancedMonitoringRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub ${ProjectName}-${Environment}-rds-monitoring-role
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: monitoring.rds.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole
-
-  # Read Replica (for production)
-  DBReadReplica:
-    Type: AWS::RDS::DBInstance
-    Condition: IsProduction
-    Properties:
-      DBInstanceIdentifier: !Sub ${ProjectName}-${Environment}-postgres-read-replica
-      DBInstanceClass: !Ref DBInstanceClass
-      SourceDBInstanceIdentifier: !Ref DBInstance
-      VPCSecurityGroups:
-        - !Ref DBSecurityGroup
-      PubliclyAccessible: false
-      Tags:
-        - Key: Name
-          Value: !Sub ${ProjectName}-${Environment}-postgres-read-replica
         - Key: Project
           Value: !Ref ProjectName
         - Key: Environment
@@ -215,111 +175,6 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub ${ProjectName}-${Environment}-db-options
-
-  # CloudWatch Log Group
-  DBLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub /aws/rds/instance/${ProjectName}-${Environment}-postgres/postgresql
-      RetentionInDays: 14
-      Tags:
-        - Key: Name
-          Value: !Sub ${ProjectName}-${Environment}-db-logs
-        - Key: Project
-          Value: !Ref ProjectName
-
-  # DB Secret in Secrets Manager
-  DBSecret:
-    Type: AWS::SecretsManager::Secret
-    Properties:
-      Name: !Sub ${ProjectName}/${Environment}/rds/credentials
-      Description: RDS credentials for Car Marketplace database
-      GenerateSecretString:
-        SecretStringTemplate: !Sub '{"username": "${DBUsername}"}'
-        GenerateStringKey: password
-        PasswordLength: 32
-        ExcludeCharacters: '"@/\'
-      Tags:
-        - Key: Name
-          Value: !Sub ${ProjectName}-${Environment}-db-secret
-        - Key: Project
-          Value: !Ref ProjectName
-
-  # Secret attachment to RDS instance
-  DBSecretAttachment:
-    Type: AWS::SecretsManager::SecretTargetAttachment
-    Properties:
-      SecretId: !Ref DBSecret
-      TargetId: !Ref DBInstance
-      TargetType: AWS::RDS::DBInstance
-
-  # CloudWatch Alarms
-  DBHighCPUAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub ${ProjectName}-${Environment}-db-high-cpu
-      AlarmDescription: RDS instance high CPU
-      MetricName: CPUUtilization
-      Namespace: AWS/RDS
-      Statistic: Average
-      Period: 300
-      EvaluationPeriods: 2
-      Threshold: 80
-      ComparisonOperator: GreaterThanThreshold
-      Dimensions:
-        - Name: DBInstanceIdentifier
-          Value: !Ref DBInstance
-      AlarmActions:
-        - !Ref DBAlarmTopic
-
-  DBHighConnectionsAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub ${ProjectName}-${Environment}-db-high-connections
-      AlarmDescription: RDS instance high connections
-      MetricName: DatabaseConnections
-      Namespace: AWS/RDS
-      Statistic: Average
-      Period: 300
-      EvaluationPeriods: 2
-      Threshold: 80
-      ComparisonOperator: GreaterThanThreshold
-      Dimensions:
-        - Name: DBInstanceIdentifier
-          Value: !Ref DBInstance
-      AlarmActions:
-        - !Ref DBAlarmTopic
-
-  DBLowFreeStorageAlarm:
-    Type: AWS::CloudWatch::Alarm
-    Properties:
-      AlarmName: !Sub ${ProjectName}-${Environment}-db-low-free-storage
-      AlarmDescription: RDS instance low free storage
-      MetricName: FreeStorageSpace
-      Namespace: AWS/RDS
-      Statistic: Average
-      Period: 300
-      EvaluationPeriods: 1
-      Threshold: 2000000000  # 2GB in bytes
-      ComparisonOperator: LessThanThreshold
-      Dimensions:
-        - Name: DBInstanceIdentifier
-          Value: !Ref DBInstance
-      AlarmActions:
-        - !Ref DBAlarmTopic
-
-  # SNS Topic for DB Alarms
-  DBAlarmTopic:
-    Type: AWS::SNS::Topic
-    Properties:
-      TopicName: !Sub ${ProjectName}-${Environment}-db-alarms
-      DisplayName: Car Marketplace Database Alarms
-      Tags:
-        - Key: Name
-          Value: !Sub ${ProjectName}-${Environment}-db-alarms
-
-Conditions:
-  IsProduction: !Equals [!Ref Environment, production]
 
 Outputs:
   DBInstanceEndpoint:
@@ -339,16 +194,3 @@ Outputs:
     Value: !Ref DBName
     Export:
       Name: !Sub ${ProjectName}-${Environment}-DBName
-
-  DBSecretArn:
-    Description: ARN of the database secret
-    Value: !Ref DBSecret
-    Export:
-      Name: !Sub ${ProjectName}-${Environment}-DBSecretArn
-
-  DBReadReplicaEndpoint:
-    Description: RDS read replica endpoint
-    Condition: IsProduction
-    Value: !GetAtt DBReadReplica.Endpoint.Address
-    Export:
-      Name: !Sub ${ProjectName}-${Environment}-DBReadReplicaEndpoint
