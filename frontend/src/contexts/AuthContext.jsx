@@ -86,29 +86,11 @@ export function AuthProvider({ children }) {
     try {
       dispatch({ type: 'LOGIN_START' })
       
-      // For demo purposes, we'll simulate a login response
-      // In a real app, this would call authAPI.login(credentials)
-      
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      
-      // Mock successful login response
-      const mockUser = {
-        id: 1,
-        username: credentials.username,
-        email: credentials.email || `${credentials.username}@example.com`,
-        firstName: 'John',
-        lastName: 'Doe',
-        role: credentials.username === 'admin' ? 'ADMIN' : 
-              credentials.username.includes('seller') ? 'SELLER' : 'SHOPPER',
-        isActive: true,
-        location: 'New York, NY',
-        phoneNumber: '+1234567890',
-      }
-      
-      const mockToken = 'mock-jwt-token-' + Date.now()
-      
-      // Store in localStorage
+      // Local dev: the backend (dev profile) signs in any credentials and returns
+      // { token, user } with a real database user id.
+      const { data } = await authAPI.login(credentials)
+      const { user: mockUser, token: mockToken } = data
+
       localStorage.setItem('authToken', mockToken)
       localStorage.setItem('user', JSON.stringify(mockUser))
       
@@ -132,20 +114,9 @@ export function AuthProvider({ children }) {
     try {
       dispatch({ type: 'LOGIN_START' })
       
-      // For demo purposes, simulate registration
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      
-      const newUser = {
-        id: Date.now(),
-        ...userData,
-        isActive: true,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      }
-      
-      const mockToken = 'mock-jwt-token-' + Date.now()
-      
-      // Store in localStorage
+      const { data } = await authAPI.register(userData)
+      const { user: newUser, token: mockToken } = data
+
       localStorage.setItem('authToken', mockToken)
       localStorage.setItem('user', JSON.stringify(newUser))
       

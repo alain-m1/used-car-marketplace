@@ -30,6 +30,10 @@ spring:
 app:
   cors:
     allowed-origins: ${CORS_ORIGINS:http://localhost:3000}
+  auth:
+    local:
+      # Only read when SPRING_PROFILES_ACTIVE=dev (offline Cognito stand-in)
+      jwt-secret: ${LOCAL_JWT_SECRET:local-dev-only-secret-change-me-0123456789}
 
 aws:
   region: ${AWS_REGION:us-east-2}
@@ -38,6 +42,8 @@ aws:
     client-id: ${AWS_COGNITO_CLIENT_ID:placeholder-client-id}
   s3:
     bucket-name: ${AWS_S3_BUCKET_NAME:car-marketplace-media-placeholder}
+    # Only used with SPRING_PROFILES_ACTIVE=dev (LocalStack container, path-style)
+    endpoint: ${AWS_S3_ENDPOINT:http://car-marketplace-s3-mock:4566}
 
 management:
   endpoint:
