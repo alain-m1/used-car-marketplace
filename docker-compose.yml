@@ -11,7 +11,9 @@ services:
       # Database Configuration (matches k8s postgres-config)
       POSTGRES_DB: car_marketplace
       POSTGRES_USER: carmarket_user
-      POSTGRES_PASSWORD: password123  # (matches k8s postgres-secrets)
+      # Local-only default. In AWS the password comes from SSM Parameter Store
+      # (/car-marketplace/development/db-password), never from this file.
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-password123}
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
       - "5432:5432"
@@ -28,6 +30,8 @@ services:
       start_period: 30s
 
   # Redis Cache
+  # AWS mapping: becomes a sidecar container (redis:7.2-alpine, essential: true)
+  # in the backend ECS task on FARGATE_SPOT. Cache is disposable, so no volume.
   redis:
     image: redis:7.2-alpine
     container_name: car-marketplace-redis
@@ -51,7 +55,6 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-      target: production
     container_name: car-marketplace-backend
     restart: unless-stopped
     depends_on:
@@ -65,10 +68,13 @@ services:
       DB_PORT: 5432
       DB_NAME: car_marketplace
       DB_USERNAME: carmarket_user
-      DB_PASSWORD: password123
+      DB_PASSWORD: ${DB_PASSWORD:-password123}  # ECS: injected via task-definition Secrets (SSM)
 
       # Redis Configuration
-      REDIS_HOST: redis
+      # Local: the redis service below. On ECS the same redis:7.2-alpine image runs
+      # as a Fargate Spot sidecar in the backend task (awsvpc shares localhost),
+      # so set REDIS_HOST=localhost in the task definition. No ElastiCache.
+      REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: 6379
 
       # Application Configuration
@@ -77,14 +83,15 @@ services:
       LOG_LEVEL: INFO
 
       # JWT Configuration
-      JWT_SECRET: super_secret_jwt_key_for_car_marketplace_development
+      JWT_SECRET: ${JWT_SECRET:-super_secret_jwt_key_for_car_marketplace_development}
       JWT_EXPIRATION: 86400
 
       # CORS Configuration
       CORS_ORIGINS: http://localhost:3000,http://frontend:80
 
       # AWS Configuration (for local development)
-      AWS_REGION: us-east-1
+      AWS_REGION: us-east-2
+      AWS_DEFAULT_REGION: us-east-2
       AWS_ACCESS_KEY_ID: localstack
       AWS_SECRET_ACCESS_KEY: localstack
       AWS_S3_BUCKET_NAME: car-marketplace-images-local
@@ -113,13 +120,16 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-      target: production
     container_name: car-marketplace-frontend
     restart: unless-stopped
     depends_on:
       backend:
         condition: service_healthy
     environment:
+      # Local only: nginx proxies /api/ to API_UPSTREAM. In AWS leave it unset;
+      # the ALB listener rule /api/* -> backend target group does the routing.
+      API_UPSTREAM: http://backend:8080
+      NGINX_RESOLVER: 127.0.0.11
       REACT_APP_API_URL: http://localhost:8080/api/v1
       REACT_APP_ENVIRONMENT: docker
       REACT_APP_VERSION: 1.0.0
@@ -292,7 +302,7 @@ services:
       PGPORT: 5432
       PGDATABASE: car_marketplace
       PGUSER: carmarket_user
-      PGPASSWORD: password123
+      PGPASSWORD: ${DB_PASSWORD:-password123}
     volumes:
       - ./backups:/backups
       - ./scripts/backup.sh:/backup.sh:ro
