@@ -1,49 +1,53 @@
+# Production configuration for ECS Fargate. Every value below is injected by the
+# ECS task definition (environment + SSM-backed secrets); nothing falls back to a
+# local default, so a missing variable fails fast at startup instead of silently
+# pointing at localhost.
+#
+# Required: SPRING_DATASOURCE_URL, DB_USERNAME, DB_PASSWORD (SSM secret), REDIS_HOST,
+#           AWS_REGION, AWS_COGNITO_USER_POOL_ID, AWS_COGNITO_CLIENT_ID,
+#           AWS_S3_BUCKET_NAME, CORS_ORIGINS
 server:
   port: ${SERVER_PORT:8080}
+  forward-headers-strategy: framework   # behind the ALB
 
 spring:
   profiles:
-    active: ${SPRING_PROFILES_ACTIVE:dev}
+    active: ${SPRING_PROFILES_ACTIVE:prod}
 
   datasource:
-    # Compose env (DB_HOST/DB_PORT/DB_NAME/DB_USERNAME/DB_PASSWORD) -> JDBC settings.
-    # Defaults match docker-compose.yml so the file also works with partial env.
-    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:car_marketplace}
-    username: ${DB_USERNAME:carmarket_user}
-    password: ${DB_PASSWORD:password123}
+    # e.g. jdbc:postgresql://<rds-endpoint>:5432/<db-name>
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 5   # db.t4g.micro has a small connection budget
 
   jpa:
-    # No schema scripts ship with the repo (./database/init is not in the bundle),
-    # so let Hibernate create/update tables on first boot. Override with
-    # SPRING_JPA_HIBERNATE_DDL_AUTO=validate once a migration tool exists.
     hibernate:
+      # No migration tool ships with the repo yet. Switch to "validate" once
+      # Flyway/Liquibase owns the schema.
       ddl-auto: ${JPA_DDL_AUTO:update}
     open-in-view: false
 
   data:
     redis:
-      host: ${REDIS_HOST:localhost}
+      # Redis runs as a sidecar container in the same Fargate task: REDIS_HOST=localhost
+      host: ${REDIS_HOST}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
 
 app:
   cors:
-    allowed-origins: ${CORS_ORIGINS:http://localhost:3000}
-  auth:
-    local:
-      # Only read when SPRING_PROFILES_ACTIVE=dev (offline Cognito stand-in)
-      jwt-secret: ${LOCAL_JWT_SECRET:local-dev-only-secret-change-me-0123456789}
+    allowed-origins: ${CORS_ORIGINS}
 
 aws:
   region: ${AWS_REGION:us-east-2}
   cognito:
-    user-pool-id: ${AWS_COGNITO_USER_POOL_ID:us-east-2_placeholder}
-    client-id: ${AWS_COGNITO_CLIENT_ID:placeholder-client-id}
+    user-pool-id: ${AWS_COGNITO_USER_POOL_ID}
+    client-id: ${AWS_COGNITO_CLIENT_ID}
   s3:
-    bucket-name: ${AWS_S3_BUCKET_NAME:car-marketplace-media-placeholder}
-    # Only used with SPRING_PROFILES_ACTIVE=dev (LocalStack container, path-style)
-    endpoint: ${AWS_S3_ENDPOINT:http://car-marketplace-s3-mock:4566}
+    bucket-name: ${AWS_S3_BUCKET_NAME}
 
 management:
   endpoint:

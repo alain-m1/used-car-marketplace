@@ -6,7 +6,6 @@ import com.carmarket.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Profile;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AbstractAuthenticationToken;
@@ -68,13 +67,13 @@ public class SecurityConfig {
             "/swagger-ui.html"
     };
 
-    @Value("${aws.region:us-east-2}")
+    @Value("${aws.region}")
     private String awsRegion;
 
     @Value("${aws.cognito.user-pool-id}")
     private String userPoolId;
 
-    @Value("${app.cors.allowed-origins:http://localhost:3000}")
+    @Value("${app.cors.allowed-origins}")
     private List<String> allowedOrigins;
 
     @Bean
@@ -90,7 +89,6 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, PUBLIC_GET_ENDPOINTS).permitAll()
                         // New account registration
                         .requestMatchers(HttpMethod.POST, "/api/v1/users").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/**").permitAll()
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter(userRepository))));
@@ -106,9 +104,7 @@ public class SecurityConfig {
      * Resolves signing keys lazily from the user pool JWKS (no network call at startup)
      * and validates issuer, expiry and that the token is a Cognito access token.
      */
-    // Dev profile swaps in LocalAuthConfig.jwtDecoder() (offline HS256 tokens)
     @Bean
-    @Profile("!dev")
     public JwtDecoder jwtDecoder() {
         String issuer = issuerUri();
         NimbusJwtDecoder decoder = NimbusJwtDecoder
