@@ -16,7 +16,12 @@ Parameters:
   DomainName:
     Type: String
     Default: ""
-    Description: Optional custom domain for Cognito / CloudFront
+    Description: Optional web app domain, added to CORS, callback and logout allow-lists. The Cognito hosted UI always uses the prefix domain below.
+
+  LocalClientOrigin:
+    Type: String
+    Default: http://localhost:3000
+    Description: Local dev client origin, always allowed for CORS, OAuth callback and logout
 
 Conditions:
   UseCustomDomain: !Not [!Equals [!Ref DomainName, ""]]
@@ -52,7 +57,7 @@ Resources:
       CorsConfiguration:
         CorsRules:
           - AllowedOrigins:
-              - http://localhost:3000
+              - !Ref LocalClientOrigin
               - !If
                 - UseCustomDomain
                 - !Sub https://${DomainName}
@@ -242,11 +247,12 @@ Resources:
         Environment: !Ref Environment
 
   # Cognito User Pool Domain
+  # Always created: the hosted UI URL needs a domain prefix, not the pool ID.
+  # Prefix is globally unique per region; account ID keeps it collision-free.
   CognitoUserPoolDomain:
-    Condition: UseCustomDomain
     Type: AWS::Cognito::UserPoolDomain
     Properties:
-      Domain: !Ref DomainName
+      Domain: !Sub ${ProjectName}-${Environment}-${AWS::AccountId}
       UserPoolId: !Ref CognitoUserPool
 
   # Cognito User Pool Client
@@ -270,7 +276,7 @@ Resources:
       SupportedIdentityProviders:
         - COGNITO
       CallbackURLs:
-        - http://localhost:3000/auth/callback
+        - !Sub ${LocalClientOrigin}/auth/callback
         - !If
           - UseCustomDomain
           - !Sub https://${DomainName}/auth/callback
@@ -280,10 +286,14 @@ Resources:
           - !Sub https://www.${DomainName}/auth/callback
           - !Ref "AWS::NoValue"
       LogoutURLs:
-        - http://localhost:3000/auth/logout
+        - !Sub ${LocalClientOrigin}/auth/logout
         - !If
           - UseCustomDomain
           - !Sub https://${DomainName}/auth/logout
+          - !Ref "AWS::NoValue"
+        - !If
+          - UseCustomDomain
+          - !Sub https://www.${DomainName}/auth/logout
           - !Ref "AWS::NoValue"
       AllowedOAuthFlows:
         - code
@@ -491,10 +501,7 @@ Outputs:
 
   CognitoUserPoolDomainUrl:
     Description: Cognito User Pool Domain URL
-    Value: !If
-      - UseCustomDomain
-      - !Sub https://${DomainName}
-      - !Sub https://${CognitoUserPool}.auth.${AWS::Region}.amazoncognito.com
+    Value: !Sub https://${CognitoUserPoolDomain}.auth.${AWS::Region}.amazoncognito.com
     Export:
       Name: !Sub ${ProjectName}-${Environment}-CognitoUserPoolDomainUrl
 
