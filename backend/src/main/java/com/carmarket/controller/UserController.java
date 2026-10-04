@@ -18,6 +18,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -25,7 +26,6 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/users")
 @Tag(name = "User Management", description = "APIs for managing users")
-@CrossOrigin(origins = {"http://localhost:3000", "http://localhost:5173"})
 public class UserController {
 
     private static final Logger logger = LoggerFactory.getLogger(UserController.class);
@@ -125,6 +125,16 @@ public class UserController {
         return ResponseEntity.ok(users);
     }
 
+    @Operation(summary = "Get the signed-in user", description = "Profile row linked to the Cognito sub of the access token")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "User found"),
+            @ApiResponse(responseCode = "404", description = "No profile linked to this Cognito user yet")
+    })
+    @GetMapping("/me")
+    public ResponseEntity<UserDTO> getCurrentUser(Authentication authentication) {
+        return ResponseEntity.ok(userService.getUserByCognitoId(authentication.getName()));
+    }
+
     @Operation(summary = "Create a new user", description = "Create a new user account")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "201", description = "User created successfully"),
@@ -134,9 +144,11 @@ public class UserController {
     @PostMapping
     public ResponseEntity<UserDTO> createUser(
             @Parameter(description = "User data", required = true)
-            @Valid @RequestBody UserDTO userDTO) {
-        logger.info("POST /api/v1/users - Creating new user with username: {}", userDTO.getUsername());
-        UserDTO createdUser = userService.createUser(userDTO);
+            @Valid @RequestBody UserDTO userDTO,
+            Authentication authentication) {
+        // Requires a valid Cognito access token; the profile is linked to its `sub`.
+        logger.info("POST /api/v1/users - Creating profile with username: {}", userDTO.getUsername());
+        UserDTO createdUser = userService.createUserForCognito(userDTO, authentication.getName());
         return ResponseEntity.status(HttpStatus.CREATED).body(createdUser);
     }
 

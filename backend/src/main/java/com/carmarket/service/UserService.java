@@ -108,6 +108,42 @@ public class UserService {
         return convertToDTO(savedUser);
     }
 
+    @Transactional(readOnly = true)
+    public UserDTO getUserByCognitoId(String cognitoUserId) {
+        return userRepository.findByCognitoUserId(cognitoUserId)
+                .map(this::convertToDTO)
+                .orElseThrow(() -> new ResourceNotFoundException("No user linked to this Cognito account"));
+    }
+
+    /**
+     * Creates the profile row for an authenticated Cognito user and links it to the token's
+     * {@code sub}. Idempotent per sub. Self-service sign-up can only pick SELLER or SHOPPER;
+     * ADMIN is never granted here.
+     */
+    @CacheEvict(value = "users", allEntries = true)
+    public UserDTO createUserForCognito(UserDTO userDTO, String cognitoUserId) {
+        Optional<User> existing = userRepository.findByCognitoUserId(cognitoUserId);
+        if (existing.isPresent()) {
+            return convertToDTO(existing.get());
+        }
+
+        if (userRepository.existsByUsername(userDTO.getUsername())) {
+            throw new UserAlreadyExistsException("Username already exists: " + userDTO.getUsername());
+        }
+        if (userRepository.existsByEmail(userDTO.getEmail())) {
+            throw new UserAlreadyExistsException("Email already exists: " + userDTO.getEmail());
+        }
+
+        User user = convertToEntity(userDTO);
+        user.setRole(userDTO.getRole() == UserRole.SELLER ? UserRole.SELLER : UserRole.SHOPPER);
+        user.setIsActive(true);
+        if (user.getLocation() == null || user.getLocation().isBlank()) {
+            user.setLocation("Not specified"); // users.location is NOT NULL
+        }
+        user.setCognitoUserId(cognitoUserId);
+        return convertToDTO(userRepository.save(user));
+    }
+
     @CacheEvict(value = "users", key = "#id")
     public UserDTO updateUser(Long id, UserDTO userDTO) {
         logger.info("Updating user with ID: {}", id);

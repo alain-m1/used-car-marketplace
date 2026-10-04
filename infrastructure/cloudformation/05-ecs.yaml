@@ -8,6 +8,24 @@ Parameters:
   Environment:
     Type: String
     Default: development
+  BackendImage:
+    Type: String
+    Description: Backend image URI, e.g. <account>.dkr.ecr.us-east-2.amazonaws.com/car-marketplace-backend:latest
+  FrontendImage:
+    Type: String
+    Description: Frontend image URI, e.g. <account>.dkr.ecr.us-east-2.amazonaws.com/car-marketplace-frontend:latest
+  RedisImage:
+    Type: String
+    Default: redis:7.2-alpine
+  DBUsername:
+    Type: String
+    Default: carmarketuser
+    Description: Must match the DBUsername used by 03-rds.yaml
+  DesiredCount:
+    Type: Number
+    Default: 1
+    MinValue: 0
+    Description: Tasks per service. Set 0 to pause the environment without deleting it.
 
 Resources:
   # ECS Cluster
@@ -58,8 +76,8 @@ Resources:
         Fn::ImportValue: !Sub '${ProjectName}-${Environment}-VPC'
       SecurityGroupIngress:
         - IpProtocol: tcp
-          FromPort: 3000
-          ToPort: 3000
+          FromPort: 80
+          ToPort: 80
           SourceSecurityGroupId: !Ref ALBSecurityGroup
         - IpProtocol: tcp
           FromPort: 8080
@@ -151,6 +169,279 @@ Resources:
       LogGroupName: !Sub '/ecs/${ProjectName}-${Environment}-frontend'
       RetentionInDays: 7
 
+  # ---------------------------------------------------------------------------
+  # Load balancing: / -> frontend (nginx, port 80), /api/* -> backend (Spring, 8080)
+  # ---------------------------------------------------------------------------
+  FrontendTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-fe-tg'
+      VpcId:
+        Fn::ImportValue: !Sub '${ProjectName}-${Environment}-VPC'
+      Protocol: HTTP
+      Port: 80
+      TargetType: ip
+      HealthCheckPath: /health
+      HealthCheckIntervalSeconds: 30
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: '30'
+
+  BackendTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub '${ProjectName}-${Environment}-be-tg'
+      VpcId:
+        Fn::ImportValue: !Sub '${ProjectName}-${Environment}-VPC'
+      Protocol: HTTP
+      Port: 8080
+      TargetType: ip
+      HealthCheckPath: /actuator/health
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 10
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 5
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: '30'
+
+  HttpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref FrontendTargetGroup
+
+  ApiListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref HttpListener
+      Priority: 10
+      Conditions:
+        - Field: path-pattern
+          Values:
+            - /api/*
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref BackendTargetGroup
+
+  # ---------------------------------------------------------------------------
+  # Task definitions (0.25 vCPU / 0.5 GB each, per CLAUDE.md)
+  # ---------------------------------------------------------------------------
+  # Backend task: Spring Boot + Redis sidecar. Containers in one awsvpc task share
+  # localhost, so the backend reaches Redis at REDIS_HOST=localhost (no ElastiCache).
+  BackendTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub '${ProjectName}-${Environment}-backend'
+      RequiresCompatibilities:
+        - FARGATE
+      NetworkMode: awsvpc
+      Cpu: '256'
+      Memory: '512'
+      ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt ECSTaskRole.Arn
+      ContainerDefinitions:
+        - Name: redis
+          Image: !Ref RedisImage
+          Essential: true
+          Cpu: 32
+          Memory: 64
+          Command:
+            - redis-server
+            - --maxmemory
+            - 40mb
+            - --maxmemory-policy
+            - allkeys-lru
+            - --save
+            - ''
+            - --appendonly
+            - 'no'
+          PortMappings:
+            - ContainerPort: 6379
+              Protocol: tcp
+          HealthCheck:
+            Command: [CMD, redis-cli, ping]
+            Interval: 15
+            Timeout: 3
+            Retries: 3
+            StartPeriod: 5
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref BackendLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: redis
+        - Name: backend
+          Image: !Ref BackendImage
+          Essential: true
+          Cpu: 224
+          Memory: 420
+          DependsOn:
+            - ContainerName: redis
+              Condition: HEALTHY
+          PortMappings:
+            - ContainerPort: 8080
+              Protocol: tcp
+          Environment:
+            - Name: SPRING_PROFILES_ACTIVE
+              Value: prod
+            - Name: SERVER_PORT
+              Value: '8080'
+            # Keep the JVM inside the 420 MB container limit
+            - Name: JAVA_TOOL_OPTIONS
+              Value: '-Xms128m -Xmx256m -XX:MaxMetaspaceSize=128m -XX:+UseSerialGC -Xss512k'
+            - Name: SPRING_DATASOURCE_URL
+              Value:
+                Fn::Sub:
+                  - 'jdbc:postgresql://${DBEndpoint}:${DBPort}/${DBNameValue}'
+                  - DBEndpoint:
+                      Fn::ImportValue: !Sub '${ProjectName}-${Environment}-DBEndpoint'
+                    DBPort:
+                      Fn::ImportValue: !Sub '${ProjectName}-${Environment}-DBPort'
+                    DBNameValue:
+                      Fn::ImportValue: !Sub '${ProjectName}-${Environment}-DBName'
+            - Name: DB_USERNAME
+              Value: !Ref DBUsername
+            - Name: REDIS_HOST
+              Value: localhost
+            - Name: REDIS_PORT
+              Value: '6379'
+            - Name: AWS_REGION
+              Value: !Ref AWS::Region
+            - Name: AWS_COGNITO_USER_POOL_ID
+              Value:
+                Fn::ImportValue: !Sub '${ProjectName}-${Environment}-CognitoUserPoolId'
+            - Name: AWS_COGNITO_CLIENT_ID
+              Value:
+                Fn::ImportValue: !Sub '${ProjectName}-${Environment}-CognitoUserPoolClientId'
+            - Name: AWS_S3_BUCKET_NAME
+              Value:
+                Fn::ImportValue: !Sub '${ProjectName}-${Environment}-CarImagesBucket'
+            # Browser origin = the ALB (the frontend calls /api on the same origin)
+            - Name: CORS_ORIGINS
+              Value: !Sub 'http://${ApplicationLoadBalancer.DNSName}'
+          Secrets:
+            - Name: DB_PASSWORD
+              ValueFrom: !Sub 'arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ProjectName}/${Environment}/db-password'
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref BackendLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: backend
+
+  FrontendTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub '${ProjectName}-${Environment}-frontend'
+      RequiresCompatibilities:
+        - FARGATE
+      NetworkMode: awsvpc
+      Cpu: '256'
+      Memory: '512'
+      ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt ECSTaskRole.Arn
+      ContainerDefinitions:
+        - Name: frontend
+          Image: !Ref FrontendImage
+          Essential: true
+          PortMappings:
+            - ContainerPort: 80
+              Protocol: tcp
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref FrontendLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: frontend
+
+  # ---------------------------------------------------------------------------
+  # Services: 100% Fargate Spot, one AZ, public IP (no NAT gateway)
+  # ---------------------------------------------------------------------------
+  BackendService:
+    Type: AWS::ECS::Service
+    DependsOn: ApiListenerRule
+    Properties:
+      ServiceName: !Sub '${ProjectName}-${Environment}-backend'
+      Cluster: !Ref ECSCluster
+      TaskDefinition: !Ref BackendTaskDefinition
+      DesiredCount: !Ref DesiredCount
+      CapacityProviderStrategy:
+        - CapacityProvider: FARGATE_SPOT
+          Weight: 1
+          Base: 0
+        - CapacityProvider: FARGATE
+          Weight: 0
+          Base: 0
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 0
+        MaximumPercent: 100
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      # Spring Boot on 0.25 vCPU needs a long warm-up before health checks count
+      HealthCheckGracePeriodSeconds: 240
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - !Ref ECSSecurityGroup
+          Subnets:
+            # Single AZ: first public subnet only (ALB still spans the AZs it needs)
+            - !Select
+              - 0
+              - Fn::Split:
+                  - ','
+                  - Fn::ImportValue: !Sub '${ProjectName}-${Environment}-PublicSubnets'
+      LoadBalancers:
+        - ContainerName: backend
+          ContainerPort: 8080
+          TargetGroupArn: !Ref BackendTargetGroup
+
+  FrontendService:
+    Type: AWS::ECS::Service
+    DependsOn: HttpListener
+    Properties:
+      ServiceName: !Sub '${ProjectName}-${Environment}-frontend'
+      Cluster: !Ref ECSCluster
+      TaskDefinition: !Ref FrontendTaskDefinition
+      DesiredCount: !Ref DesiredCount
+      CapacityProviderStrategy:
+        - CapacityProvider: FARGATE_SPOT
+          Weight: 1
+          Base: 0
+        - CapacityProvider: FARGATE
+          Weight: 0
+          Base: 0
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 0
+        MaximumPercent: 100
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      HealthCheckGracePeriodSeconds: 30
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - !Ref ECSSecurityGroup
+          Subnets:
+            - !Select
+              - 0
+              - Fn::Split:
+                  - ','
+                  - Fn::ImportValue: !Sub '${ProjectName}-${Environment}-PublicSubnets'
+      LoadBalancers:
+        - ContainerName: frontend
+          ContainerPort: 80
+          TargetGroupArn: !Ref FrontendTargetGroup
+
 Outputs:
   ECSClusterName:
     Description: Name of the ECS cluster
@@ -193,3 +484,15 @@ Outputs:
     Value: !GetAtt ECSTaskRole.Arn
     Export:
       Name: !Sub '${ProjectName}-${Environment}-ecs-task-role-arn'
+
+  AppURL:
+    Description: Public URL of the application (HTTP via the ALB)
+    Value: !Sub 'http://${ApplicationLoadBalancer.DNSName}'
+
+  BackendServiceName:
+    Description: Name of the backend ECS service
+    Value: !GetAtt BackendService.Name
+
+  FrontendServiceName:
+    Description: Name of the frontend ECS service
+    Value: !GetAtt FrontendService.Name

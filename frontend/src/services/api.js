@@ -2,7 +2,120 @@
 import axios from 'axios'
 import toast from 'react-hot-toast'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api/v1'
+// Same-origin by default: in AWS the ALB routes /api/* to the backend service.
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1'
+
+const AWS_REGION = import.meta.env.VITE_AWS_REGION || 'us-east-2'
+const COGNITO_CLIENT_ID = import.meta.env.VITE_AWS_COGNITO_CLIENT_ID
+const COGNITO_ENDPOINT = `https://cognito-idp.${AWS_REGION}.amazonaws.com/`
+
+export const AUTH_STORAGE_KEYS = ['authToken', 'refreshToken', 'user']
+
+export const clearStoredAuth = () => {
+  AUTH_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key))
+}
+
+// Minimal Cognito User Pools client (public app client, no secret). It talks to the
+// Cognito IDP JSON API directly, so no extra npm dependency is needed.
+const cognitoRequest = async (target, payload) => {
+  if (!COGNITO_CLIENT_ID) {
+    throw new Error('Cognito is not configured (VITE_AWS_COGNITO_CLIENT_ID is missing)')
+  }
+  let response
+  try {
+    response = await fetch(COGNITO_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-amz-json-1.1',
+        'X-Amz-Target': `AWSCognitoIdentityProviderService.${target}`,
+      },
+      body: JSON.stringify(payload),
+    })
+  } catch (networkError) {
+    throw new Error('Network error. Please check your connection.')
+  }
+  const body = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    const error = new Error(body.message || 'Authentication failed')
+    error.code = (body.__type || '').split('#').pop()
+    throw error
+  }
+  return body
+}
+
+export const COGNITO_ERROR_MESSAGES = {
+  NotAuthorizedException: 'Incorrect email or password.',
+  UserNotFoundException: 'Incorrect email or password.',
+  UserNotConfirmedException: 'Please confirm your email address before signing in.',
+  UsernameExistsException: 'An account with this email already exists.',
+  InvalidPasswordException: 'Password does not meet the requirements.',
+  TooManyRequestsException: 'Too many attempts. Please try again later.',
+  LimitExceededException: 'Too many attempts. Please try again later.',
+}
+
+export const cognitoErrorMessage = (error, fallback) =>
+  COGNITO_ERROR_MESSAGES[error.code] || error.message || fallback
+
+// Reads claims for display/profile defaults only. The backend validates the signature.
+export const decodeJwtClaims = (token) => {
+  try {
+    const payload = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+    return JSON.parse(decodeURIComponent(escape(atob(payload))))
+  } catch (e) {
+    return {}
+  }
+}
+
+const toTokens = (result, previousRefreshToken) => ({
+  idToken: result.IdToken,
+  // The backend only accepts Cognito ACCESS tokens (token_use=access).
+  accessToken: result.AccessToken,
+  refreshToken: result.RefreshToken || previousRefreshToken,
+})
+
+export const cognitoAPI = {
+  signUp: ({ email, password, firstName, lastName }) =>
+    cognitoRequest('SignUp', {
+      ClientId: COGNITO_CLIENT_ID,
+      Username: email,
+      Password: password,
+      UserAttributes: [
+        { Name: 'email', Value: email },
+        { Name: 'given_name', Value: firstName },
+        { Name: 'family_name', Value: lastName },
+      ],
+    }),
+
+  confirmSignUp: ({ email, code }) =>
+    cognitoRequest('ConfirmSignUp', {
+      ClientId: COGNITO_CLIENT_ID,
+      Username: email,
+      ConfirmationCode: code,
+    }),
+
+  signIn: async ({ email, password }) => {
+    const { AuthenticationResult } = await cognitoRequest('InitiateAuth', {
+      AuthFlow: 'USER_PASSWORD_AUTH',
+      ClientId: COGNITO_CLIENT_ID,
+      AuthParameters: { USERNAME: email, PASSWORD: password },
+    })
+    if (!AuthenticationResult) {
+      throw new Error('Additional sign-in steps are required for this account.')
+    }
+    return toTokens(AuthenticationResult)
+  },
+
+  refresh: async (refreshToken) => {
+    const { AuthenticationResult } = await cognitoRequest('InitiateAuth', {
+      AuthFlow: 'REFRESH_TOKEN_AUTH',
+      ClientId: COGNITO_CLIENT_ID,
+      AuthParameters: { REFRESH_TOKEN: refreshToken },
+    })
+    return toTokens(AuthenticationResult, refreshToken)
+  },
+
+  signOut: (accessToken) => cognitoRequest('GlobalSignOut', { AccessToken: accessToken }),
+}
 
 // Create axios instance
 const api = axios.create({
@@ -27,13 +140,33 @@ api.interceptors.request.use(
   }
 )
 
+// Refresh the Cognito access token with the stored refresh token (single flight)
+let refreshPromise = null
+const refreshAccessToken = () => {
+  const refreshToken = localStorage.getItem('refreshToken')
+  if (!refreshToken) return Promise.reject(new Error('No refresh token'))
+  if (!refreshPromise) {
+    refreshPromise = cognitoAPI
+      .refresh(refreshToken)
+      .then(({ accessToken }) => {
+        localStorage.setItem('authToken', accessToken)
+        return accessToken
+      })
+      .finally(() => {
+        refreshPromise = null
+      })
+  }
+  return refreshPromise
+}
+
 // Response interceptor for error handling
 api.interceptors.response.use(
   (response) => {
     return response
   },
-  (error) => {
+  async (error) => {
     const { response } = error
+    const original = error.config
 
     if (!response) {
       toast.error('Network error. Please check your connection.')
@@ -42,8 +175,18 @@ api.interceptors.response.use(
 
     switch (response.status) {
       case 401:
-        localStorage.removeItem('authToken')
-        localStorage.removeItem('user')
+        // Access tokens last 60 minutes: renew once and replay the request
+        if (original && !original._retried && localStorage.getItem('refreshToken')) {
+          original._retried = true
+          try {
+            const accessToken = await refreshAccessToken()
+            original.headers.Authorization = `Bearer ${accessToken}`
+            return api(original)
+          } catch (refreshError) {
+            // fall through to sign-out below
+          }
+        }
+        clearStoredAuth()
         window.location.href = '/auth/login'
         toast.error('Session expired. Please login again.')
         break
@@ -51,7 +194,8 @@ api.interceptors.response.use(
         toast.error('You do not have permission to perform this action.')
         break
       case 404:
-        toast.error('Resource not found.')
+        // Callers can opt out (e.g. GET /users/me before the profile exists)
+        if (!original?.skipNotFoundToast) toast.error('Resource not found.')
         break
       case 409:
         // Conflict errors (like duplicate username/email) are handled by components
@@ -74,12 +218,11 @@ api.interceptors.response.use(
   }
 )
 
-// Auth API
+// Auth API: Cognito handles credentials; the backend owns the profile row,
+// linked to the Cognito `sub` claim of the access token.
 export const authAPI = {
-  login: (credentials) => api.post('/auth/login', credentials),
-  register: (userData) => api.post('/auth/register', userData),
-  refreshToken: () => api.post('/auth/refresh'),
-  logout: () => api.post('/auth/logout'),
+  getCurrentUser: () => api.get('/users/me'),
+  syncProfile: (profile) => api.post('/users', profile),
 }
 
 // Users API

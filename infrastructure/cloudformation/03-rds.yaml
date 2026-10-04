@@ -1,6 +1,6 @@
 # infrastructure/cloudformation/03-rds.yaml
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'RDS PostgreSQL database for Car Marketplace application'
+Description: 'RDS PostgreSQL database for Car Marketplace application (cost-managed: single instance, no replica, no monitoring add-ons, no Secrets Manager)'
 
 Parameters:
   ProjectName:
@@ -117,14 +117,10 @@ Resources:
         - IpProtocol: tcp
           FromPort: 5432
           ToPort: 5432
-          SourceSecurityGroupId: !ImportValue
-            Fn::Sub: ${ProjectName}-${Environment}-ecs-sg
-          Description: Allow access from ECS tasks
-        - IpProtocol: tcp
-          FromPort: 5432
-          ToPort: 5432
           CidrIp: 10.0.0.0/16
-          Description: Allow access from VPC
+          # Covers the ECS tasks. 05-ecs.yaml imports this stack's DB outputs, so this
+          # template must not import 05's ecs-sg export (circular dependency).
+          Description: Allow access from VPC (ECS tasks)
       Tags:
         - Key: Name
           Value: !Sub ${ProjectName}-${Environment}-db-sg
@@ -137,7 +133,7 @@ Resources:
       DBInstanceIdentifier: !Sub ${ProjectName}-${Environment}-postgres
       DBInstanceClass: !Ref DBInstanceClass
       Engine: postgres
-      EngineVersion: '15.8'
+      EngineVersion: '15'  # major only: RDS picks a currently supported minor (15.8 can no longer be created)
       MasterUsername: !Ref DBUsername
       MasterUserPassword: !Ref DBPassword
       DBName: !Ref DBName

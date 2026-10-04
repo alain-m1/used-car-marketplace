@@ -12,6 +12,17 @@ RUN npm ci
 # Copy source code
 COPY . .
 
+# Vite inlines VITE_* values at build time, so pass them as build args
+# (ARG_* values come from the Cognito stack outputs; see docker build in the deploy notes)
+ARG VITE_API_BASE_URL=/api/v1
+ARG VITE_AWS_REGION=us-east-2
+ARG VITE_AWS_COGNITO_USER_POOL_ID
+ARG VITE_AWS_COGNITO_CLIENT_ID
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL \
+    VITE_AWS_REGION=$VITE_AWS_REGION \
+    VITE_AWS_COGNITO_USER_POOL_ID=$VITE_AWS_COGNITO_USER_POOL_ID \
+    VITE_AWS_COGNITO_CLIENT_ID=$VITE_AWS_COGNITO_CLIENT_ID
+
 # Build the application
 RUN npm run build
 

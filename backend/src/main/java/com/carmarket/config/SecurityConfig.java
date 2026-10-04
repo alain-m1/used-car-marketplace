@@ -41,7 +41,7 @@ import java.util.Optional;
  *
  * <ul>
  *   <li>Public: GET on vehicle inventory ({@code /api/v1/cars/**}, {@code /api/v1/listings/**}),
- *       user registration and username/email availability checks, health and API docs.</li>
+ *       username/email availability checks, health and API docs.</li>
  *   <li>Authenticated: everything else (messages, profile updates, listing mutations, ...).</li>
  *   <li>Tokens: Cognito User Pool access tokens, validated against the pool's JWKS.</li>
  * </ul>
@@ -87,8 +87,6 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(PUBLIC_ENDPOINTS).permitAll()
                         .requestMatchers(HttpMethod.GET, PUBLIC_GET_ENDPOINTS).permitAll()
-                        // New account registration
-                        .requestMatchers(HttpMethod.POST, "/api/v1/users").permitAll()
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter(userRepository))));
