@@ -1,241 +1,225 @@
-// backend/src/main/java/com/carmarket/controller/MessageController.java
-package com.carmarket.controller;
+// backend/src/main/java/com/carmarket/config/SecurityConfig.java
+package com.carmarket.config;
 
-import com.carmarket.dto.MessageDTO;
-import com.carmarket.service.MessageService;
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
-import io.swagger.v3.oas.annotations.responses.ApiResponse;
-import io.swagger.v3.oas.annotations.responses.ApiResponses;
-import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.Valid;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.*;
+import com.carmarket.model.User;
+import com.carmarket.repository.UserRepository;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.core.convert.converter.Converter;
+import org.springframework.http.HttpMethod;
+import org.springframework.security.authentication.AbstractAuthenticationToken;
+import org.springframework.security.config.Customizer;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
+import org.springframework.security.oauth2.core.OAuth2Error;
+import org.springframework.security.oauth2.core.OAuth2TokenValidator;
+import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtValidators;
+import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
-import java.util.Map;
+import java.util.Optional;
 
-@RestController
-@RequestMapping("/api/v1/messages")
-@Tag(name = "Messages", description = "APIs for managing messages between users")
-@CrossOrigin(origins = {"http://localhost:3000", "http://localhost:5173"})
-public class MessageController {
+/**
+ * Stateless JWT resource-server security for the marketplace API.
+ *
+ * <ul>
+ *   <li>Public: GET on vehicle inventory ({@code /api/v1/cars/**}, {@code /api/v1/listings/**}),
+ *       user registration and username/email availability checks, health and API docs.</li>
+ *   <li>Authenticated: everything else (messages, profile updates, listing mutations, ...).</li>
+ *   <li>Tokens: Cognito User Pool access tokens, validated against the pool's JWKS.</li>
+ * </ul>
+ *
+ * Required property: {@code aws.cognito.user-pool-id} (e.g. us-east-2_AbCdEfGhI).
+ */
+@Configuration
+@EnableWebSecurity
+@EnableMethodSecurity
+public class SecurityConfig {
 
-    private static final Logger logger = LoggerFactory.getLogger(MessageController.class);
+    private static final String[] PUBLIC_GET_ENDPOINTS = {
+            "/api/v1/cars/**",
+            "/api/v1/listings/**",
+            "/api/v1/users/check/**"
+    };
 
-    private final MessageService messageService;
+    private static final String[] PUBLIC_ENDPOINTS = {
+            "/actuator/health/**",
+            "/actuator/info",
+            "/v3/api-docs/**",
+            "/swagger-ui/**",
+            "/swagger-ui.html"
+    };
 
-    @Autowired
-    public MessageController(MessageService messageService) {
-        this.messageService = messageService;
+    @Value("${aws.region:us-east-2}")
+    private String awsRegion;
+
+    @Value("${aws.cognito.user-pool-id}")
+    private String userPoolId;
+
+    @Value("${app.cors.allowed-origins:http://localhost:3000}")
+    private List<String> allowedOrigins;
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, UserRepository userRepository)
+            throws Exception {
+        http
+                .csrf(AbstractHttpConfigurer::disable)
+                .cors(Customizer.withDefaults())
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        .requestMatchers(PUBLIC_ENDPOINTS).permitAll()
+                        .requestMatchers(HttpMethod.GET, PUBLIC_GET_ENDPOINTS).permitAll()
+                        // New account registration
+                        .requestMatchers(HttpMethod.POST, "/api/v1/users").permitAll()
+                        .anyRequest().authenticated())
+                .oauth2ResourceServer(oauth2 -> oauth2
+                        .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter(userRepository))));
+
+        return http.build();
     }
 
-    @Operation(summary = "Get message by ID", description = "Retrieve a message by its ID")
-    @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Message found successfully"),
-            @ApiResponse(responseCode = "404", description = "Message not found")
-    })
-    @GetMapping("/{id}")
-    @PreAuthorize("hasRole('USER')")
-    public ResponseEntity<MessageDTO> getMessageById(
-            @Parameter(description = "Message ID", required = true)
-            @PathVariable Long id) {
-        logger.info("GET /api/v1/messages/{} - Fetching message by ID", id);
-        MessageDTO message = messageService.getMessageById(id);
-        return ResponseEntity.ok(message);
+    private String issuerUri() {
+        return "https://cognito-idp." + awsRegion + ".amazonaws.com/" + userPoolId;
     }
 
-    @Operation(summary = "Get user messages", description = "Get all messages for a user (sent and received)")
-    @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Messages retrieved successfully"),
-            @ApiResponse(responseCode = "404", description = "User not found")
-    })
-    @GetMapping("/user/{userId}")
-    @PreAuthorize("hasRole('USER') and #userId == authentication.principal.id or hasRole('ADMIN')")
-    public ResponseEntity<Page<MessageDTO>> getUserMessages(
-            @Parameter(description = "User ID", required = true)
-            @PathVariable Long userId,
-            @Parameter(description = "Pagination parameters")
-            Pageable pageable) {
-        logger.info("GET /api/v1/messages/user/{} - Fetching messages for user", userId);
-        Page<MessageDTO> messages = messageService.getUserMessages(userId, pageable);
-        return ResponseEntity.ok(messages);
+    /**
+     * Resolves signing keys lazily from the user pool JWKS (no network call at startup)
+     * and validates issuer, expiry and that the token is a Cognito access token.
+     */
+    @Bean
+    public JwtDecoder jwtDecoder() {
+        String issuer = issuerUri();
+        NimbusJwtDecoder decoder = NimbusJwtDecoder
+                .withJwkSetUri(issuer + "/.well-known/jwks.json")
+                .build();
+
+        OAuth2TokenValidator<Jwt> accessTokenOnly = jwt -> "access".equals(jwt.getClaimAsString("token_use"))
+                ? OAuth2TokenValidatorResult.success()
+                : OAuth2TokenValidatorResult.failure(
+                new OAuth2Error("invalid_token", "Expected a Cognito access token", null));
+
+        decoder.setJwtValidator(new DelegatingOAuth2TokenValidator<>(
+                JwtValidators.createDefaultWithIssuer(issuer), accessTokenOnly));
+        return decoder;
     }
 
-    @Operation(summary = "Get received messages", description = "Get messages received by a user")
-    @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Received messages retrieved successfully"),
-            @ApiResponse(responseCode = "404", description = "User not found")
-    })
-    @GetMapping("/user/{userId}/received")
-    @PreAuthorize("hasRole('USER') and #userId == authentication.principal.id or hasRole('ADMIN')")
-    public ResponseEntity<Page<MessageDTO>> getReceivedMessages(
-            @Parameter(description = "User ID", required = true)
-            @PathVariable Long userId,
-            @Parameter(description = "Pagination parameters")
-            Pageable pageable) {
-        logger.info("GET /api/v1/messages/user/{}/received - Fetching received messages", userId);
-        Page<MessageDTO> messages = messageService.getReceivedMessages(userId, pageable);
-        return ResponseEntity.ok(messages);
+    /**
+     * Builds the authentication for a validated Cognito JWT.
+     *
+     * <p>The Cognito {@code sub} UUID is matched against {@code users.cognito_user_id}. The resulting
+     * {@link CognitoPrincipal} exposes the local database id as {@code id}, so existing expressions such as
+     * {@code #userId == authentication.principal.id} compare Long to Long. {@code authentication.name}
+     * is the {@code sub}. The database role is the single source of truth for authorities.
+     */
+    @Bean
+    public Converter<Jwt, AbstractAuthenticationToken> jwtAuthenticationConverter(UserRepository userRepository) {
+        return jwt -> {
+            String sub = jwt.getSubject();
+            Optional<User> user = userRepository.findByCognitoUserId(sub);
+
+            Long id = user.map(User::getId).orElse(null);
+            String username = user.map(User::getUsername).orElse(jwt.getClaimAsString("username"));
+
+            List<GrantedAuthority> authorities = new ArrayList<>();
+            boolean active = user.map(u -> !Boolean.FALSE.equals(u.getIsActive())).orElse(true);
+            if (active) {
+                // Every signed-in account is a USER; ADMIN/SELLER/SHOPPER come from the stored role
+                authorities.add(new SimpleGrantedAuthority("ROLE_USER"));
+                user.ifPresent(u -> authorities.add(new SimpleGrantedAuthority("ROLE_" + u.getRole().name())));
+            }
+
+            return new CognitoAuthenticationToken(jwt, new CognitoPrincipal(id, sub, username), authorities);
+        };
     }
 
-    @Operation(summary = "Get sent messages", description = "Get messages sent by a user")
-    @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Sent messages retrieved successfully"),
-            @ApiResponse(responseCode = "404", description = "User not found")
-    })
-    @GetMapping("/user/{userId}/sent")
-    @PreAuthorize("hasRole('USER') and #userId == authentication.principal.id or hasRole('ADMIN')")
-    public ResponseEntity<Page<MessageDTO>> getSentMessages(
-            @Parameter(description = "User ID", required = true)
-            @PathVariable Long userId,
-            @Parameter(description = "Pagination parameters")
-            Pageable pageable) {
-        logger.info("GET /api/v1/messages/user/{}/sent - Fetching sent messages", userId);
-        Page<MessageDTO> messages = messageService.getSentMessages(userId, pageable);
-        return ResponseEntity.ok(messages);
+    /** Principal exposed to SpEL as {@code authentication.principal}. {@code id} is null until the user row is linked. */
+    public static final class CognitoPrincipal {
+        private final Long id;
+        private final String sub;
+        private final String username;
+
+        public CognitoPrincipal(Long id, String sub, String username) {
+            this.id = id;
+            this.sub = sub;
+            this.username = username;
+        }
+
+        public Long getId() {
+            return id;
+        }
+
+        public String getSub() {
+            return sub;
+        }
+
+        public String getUsername() {
+            return username;
+        }
+
+        @Override
+        public String toString() {
+            return sub;
+        }
     }
 
-    @Operation(summary = "Get unread messages", description = "Get unread messages for a user")
-    @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Unread messages retrieved successfully"),
-            @ApiResponse(responseCode = "404", description = "User not found")
-    })
-    @GetMapping("/user/{userId}/unread")
-    @PreAuthorize("hasRole('USER') and #userId == authentication.principal.id or hasRole('ADMIN')")
-    public ResponseEntity<Page<MessageDTO>> getUnreadMessages(
-            @Parameter(description = "User ID", required = true)
-            @PathVariable Long userId,
-            @Parameter(description = "Pagination parameters")
-            Pageable pageable) {
-        logger.info("GET /api/v1/messages/user/{}/unread - Fetching unread messages", userId);
-        Page<MessageDTO> messages = messageService.getUnreadMessages(userId, pageable);
-        return ResponseEntity.ok(messages);
+    public static final class CognitoAuthenticationToken extends AbstractAuthenticationToken {
+        private final Jwt jwt;
+        private final CognitoPrincipal principal;
+
+        public CognitoAuthenticationToken(Jwt jwt, CognitoPrincipal principal,
+                                          Collection<? extends GrantedAuthority> authorities) {
+            super(authorities);
+            this.jwt = jwt;
+            this.principal = principal;
+            setAuthenticated(true);
+        }
+
+        @Override
+        public Object getCredentials() {
+            return jwt;
+        }
+
+        @Override
+        public Object getPrincipal() {
+            return principal;
+        }
+
+        @Override
+        public String getName() {
+            return principal.getSub();
+        }
     }
 
-    @Operation(summary = "Get conversation for listing", description = "Get conversation between user and others for a specific listing")
-    @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Conversation retrieved successfully"),
-            @ApiResponse(responseCode = "404", description = "User or listing not found")
-    })
-    @GetMapping("/listing/{listingId}/user/{userId}")
-    @PreAuthorize("hasRole('USER') and #userId == authentication.principal.id or hasRole('ADMIN')")
-    public ResponseEntity<List<MessageDTO>> getConversationForListing(
-            @Parameter(description = "Car listing ID", required = true)
-            @PathVariable Long listingId,
-            @Parameter(description = "User ID", required = true)
-            @PathVariable Long userId) {
-        logger.info("GET /api/v1/messages/listing/{}/user/{} - Fetching conversation", listingId, userId);
-        List<MessageDTO> messages = messageService.getConversationForListing(listingId, userId);
-        return ResponseEntity.ok(messages);
-    }
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration config = new CorsConfiguration();
+        config.setAllowedOrigins(allowedOrigins);
+        config.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        config.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "Accept"));
+        config.setExposedHeaders(List.of("Authorization"));
+        config.setAllowCredentials(true);
+        config.setMaxAge(3600L);
 
-    @Operation(summary = "Get conversation between users", description = "Get conversation between two users for a specific listing")
-    @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Conversation retrieved successfully"),
-            @ApiResponse(responseCode = "404", description = "User or listing not found")
-    })
-    @GetMapping("/conversation")
-    @PreAuthorize("hasRole('USER')")
-    public ResponseEntity<List<MessageDTO>> getConversationBetweenUsers(
-            @Parameter(description = "First user ID", required = true)
-            @RequestParam Long user1Id,
-            @Parameter(description = "Second user ID", required = true)
-            @RequestParam Long user2Id,
-            @Parameter(description = "Car listing ID", required = true)
-            @RequestParam Long listingId) {
-        logger.info("GET /api/v1/messages/conversation - Fetching conversation between users {} and {} for listing {}",
-                user1Id, user2Id, listingId);
-        List<MessageDTO> messages = messageService.getConversationBetweenUsers(user1Id, user2Id, listingId);
-        return ResponseEntity.ok(messages);
-    }
-
-    @Operation(summary = "Send a message", description = "Send a new message to another user about a listing")
-    @ApiResponses(value = {
-            @ApiResponse(responseCode = "201", description = "Message sent successfully"),
-            @ApiResponse(responseCode = "400", description = "Invalid input data"),
-            @ApiResponse(responseCode = "404", description = "Recipient or listing not found")
-    })
-    @PostMapping
-    @PreAuthorize("hasRole('USER')")
-    public ResponseEntity<MessageDTO> sendMessage(
-            @Parameter(description = "Message data", required = true)
-            @Valid @RequestBody MessageDTO messageDTO,
-            @Parameter(description = "Sender ID", required = true)
-            @RequestParam Long senderId) {
-        logger.info("POST /api/v1/messages - Sending message from user {} to user {} for listing {}",
-                senderId, messageDTO.getRecipientId(), messageDTO.getCarListingId());
-        MessageDTO sentMessage = messageService.sendMessage(messageDTO, senderId);
-        return ResponseEntity.status(HttpStatus.CREATED).body(sentMessage);
-    }
-
-    @Operation(summary = "Mark message as read", description = "Mark a message as read")
-    @ApiResponses(value = {
-            @ApiResponse(responseCode = "204", description = "Message marked as read successfully"),
-            @ApiResponse(responseCode = "401", description = "User not authorized"),
-            @ApiResponse(responseCode = "404", description = "Message not found")
-    })
-    @PatchMapping("/{messageId}/read")
-    @PreAuthorize("hasRole('USER')")
-    public ResponseEntity<Void> markAsRead(
-            @Parameter(description = "Message ID", required = true)
-            @PathVariable Long messageId,
-            @Parameter(description = "User ID", required = true)
-            @RequestParam Long userId) {
-        logger.info("PATCH /api/v1/messages/{}/read - Marking message as read by user {}", messageId, userId);
-        messageService.markAsRead(messageId, userId);
-        return ResponseEntity.noContent().build();
-    }
-
-    @Operation(summary = "Mark all messages as read", description = "Mark all messages as read for a user")
-    @ApiResponses(value = {
-            @ApiResponse(responseCode = "204", description = "All messages marked as read successfully"),
-            @ApiResponse(responseCode = "404", description = "User not found")
-    })
-    @PatchMapping("/user/{userId}/read-all")
-    @PreAuthorize("hasRole('USER') and #userId == authentication.principal.id or hasRole('ADMIN')")
-    public ResponseEntity<Void> markAllAsRead(
-            @Parameter(description = "User ID", required = true)
-            @PathVariable Long userId) {
-        logger.info("PATCH /api/v1/messages/user/{}/read-all - Marking all messages as read", userId);
-        messageService.markAllAsRead(userId);
-        return ResponseEntity.noContent().build();
-    }
-
-    @Operation(summary = "Get unread message count", description = "Get count of unread messages for a user")
-    @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Unread count retrieved successfully"),
-            @ApiResponse(responseCode = "404", description = "User not found")
-    })
-    @GetMapping("/user/{userId}/unread-count")
-    @PreAuthorize("hasRole('USER') and #userId == authentication.principal.id or hasRole('ADMIN')")
-    public ResponseEntity<Map<String, Long>> getUnreadMessageCount(
-            @Parameter(description = "User ID", required = true)
-            @PathVariable Long userId) {
-        logger.info("GET /api/v1/messages/user/{}/unread-count - Getting unread message count", userId);
-        long count = messageService.getUnreadMessageCount(userId);
-        return ResponseEntity.ok(Map.of("unreadCount", count));
-    }
-
-    @Operation(summary = "Get message count for listing", description = "Get total message count for a specific listing")
-    @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Message count retrieved successfully"),
-            @ApiResponse(responseCode = "404", description = "Listing not found")
-    })
-    @GetMapping("/listing/{listingId}/count")
-    @PreAuthorize("hasRole('USER')")
-    public ResponseEntity<Map<String, Long>> getMessageCountForListing(
-            @Parameter(description = "Car listing ID", required = true)
-            @PathVariable Long listingId) {
-        logger.info("GET /api/v1/messages/listing/{}/count - Getting message count for listing", listingId);
-        long count = messageService.getMessageCountForListing(listingId);
-        return ResponseEntity.ok(Map.of("messageCount", count));
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", config);
+        return source;
     }
 }
