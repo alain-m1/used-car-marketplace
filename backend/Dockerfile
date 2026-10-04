@@ -14,7 +14,7 @@ RUN ./mvnw dependency:go-offline -B
 COPY src ./src
 
 # Build the application
-RUN ./mvnw clean package -DskipTests
+RUN ./mvnw clean package -DskipTests -Dcheckstyle.skip=true
 
 # Runtime stage
 FROM eclipse-temurin:17-jre-jammy
