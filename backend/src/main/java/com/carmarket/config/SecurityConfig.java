@@ -129,8 +129,7 @@ public class SecurityConfig {
      * {@code #userId == authentication.principal.id} compare Long to Long. {@code authentication.name}
      * is the {@code sub}. The database role is the single source of truth for authorities.
      */
-    @Bean
-    public Converter<Jwt, AbstractAuthenticationToken> jwtAuthenticationConverter(UserRepository userRepository) {
+    private Converter<Jwt, AbstractAuthenticationToken> jwtAuthenticationConverter(UserRepository userRepository) {
         return jwt -> {
             String sub = jwt.getSubject();
             Optional<User> user = userRepository.findByCognitoUserId(sub);

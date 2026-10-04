@@ -1,0 +1,50 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+
+  datasource:
+    # Compose env (DB_HOST/DB_PORT/DB_NAME/DB_USERNAME/DB_PASSWORD) -> JDBC settings.
+    # Defaults match docker-compose.yml so the file also works with partial env.
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:car_marketplace}
+    username: ${DB_USERNAME:carmarket_user}
+    password: ${DB_PASSWORD:password123}
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    # No schema scripts ship with the repo (./database/init is not in the bundle),
+    # so let Hibernate create/update tables on first boot. Override with
+    # SPRING_JPA_HIBERNATE_DDL_AUTO=validate once a migration tool exists.
+    hibernate:
+      ddl-auto: ${JPA_DDL_AUTO:update}
+    open-in-view: false
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+
+app:
+  cors:
+    allowed-origins: ${CORS_ORIGINS:http://localhost:3000}
+
+aws:
+  region: ${AWS_REGION:us-east-2}
+  cognito:
+    user-pool-id: ${AWS_COGNITO_USER_POOL_ID:us-east-2_placeholder}
+    client-id: ${AWS_COGNITO_CLIENT_ID:placeholder-client-id}
+  s3:
+    bucket-name: ${AWS_S3_BUCKET_NAME:car-marketplace-media-placeholder}
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  endpoints:
+    web:
+      exposure:
+        include: health,info

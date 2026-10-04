@@ -77,7 +77,7 @@ services:
 
       # Application Configuration
       SERVER_PORT: 8080
-      SPRING_PROFILES_ACTIVE: docker
+      SPRING_PROFILES_ACTIVE: dev
       LOG_LEVEL: INFO
 
       # JWT Configuration
