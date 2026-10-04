@@ -1,23 +1,21 @@
 // backend/src/main/java/com/carmarket/config/AWSConfig.java
 package com.carmarket.config;
 
-import com.amazonaws.auth.AWSStaticCredentialsProvider;
-import com.amazonaws.auth.BasicAWSCredentials;
-import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
-import com.amazonaws.regions.Regions;
-import com.amazonaws.services.cognitoidp.AWSCognitoIdentityProvider;
-import com.amazonaws.services.cognitoidp.AWSCognitoIdentityProviderClientBuilder;
-import com.amazonaws.services.s3.AmazonS3;
-import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.cognitoidentityprovider.CognitoIdentityProviderClient;
+import software.amazon.awssdk.services.s3.S3Client;
 
 @Configuration
 public class AWSConfig {
 
-    @Value("${aws.region:us-east-1}")
+    @Value("${aws.region:us-east-2}")
     private String region;
 
     @Value("${aws.s3.bucket-name}")
@@ -29,43 +27,45 @@ public class AWSConfig {
     @Value("${aws.cognito.client-id}")
     private String clientId;
 
-    @Bean
+    // Default chain: ECS task role (container credentials endpoint) in AWS,
+    // env vars / ~/.aws profile locally. No static keys outside the test profile.
+    @Bean(destroyMethod = "close")
     @Profile("!test")
-    public AmazonS3 amazonS3Client() {
-        return AmazonS3ClientBuilder.standard()
-                .withRegion(Regions.fromName(region))
-                .withCredentials(DefaultAWSCredentialsProviderChain.getInstance())
+    public S3Client amazonS3Client() {
+        return S3Client.builder()
+                .region(Region.of(region))
+                .credentialsProvider(DefaultCredentialsProvider.create())
                 .build();
     }
 
-    @Bean
+    @Bean(destroyMethod = "close")
     @Profile("!test")
-    public AWSCognitoIdentityProvider cognitoClient() {
-        return AWSCognitoIdentityProviderClientBuilder.standard()
-                .withRegion(Regions.fromName(region))
-                .withCredentials(DefaultAWSCredentialsProviderChain.getInstance())
+    public CognitoIdentityProviderClient cognitoClient() {
+        return CognitoIdentityProviderClient.builder()
+                .region(Region.of(region))
+                .credentialsProvider(DefaultCredentialsProvider.create())
                 .build();
     }
 
-    @Bean
+    @Bean(destroyMethod = "close")
     @Profile("test")
-    public AmazonS3 mockS3Client() {
-        // Return a mock S3 client for testing
-        return AmazonS3ClientBuilder.standard()
-                .withRegion(Regions.US_EAST_1)
-                .withCredentials(new AWSStaticCredentialsProvider(
-                        new BasicAWSCredentials("test", "test")))
+    public S3Client mockS3Client() {
+        // Offline client for testing; dummy credentials are never sent anywhere
+        return S3Client.builder()
+                .region(Region.US_EAST_2)
+                .credentialsProvider(StaticCredentialsProvider.create(
+                        AwsBasicCredentials.create("test", "test")))
                 .build();
     }
 
-    @Bean
+    @Bean(destroyMethod = "close")
     @Profile("test")
-    public AWSCognitoIdentityProvider mockCognitoClient() {
-        // Return a mock Cognito client for testing
-        return AWSCognitoIdentityProviderClientBuilder.standard()
-                .withRegion(Regions.US_EAST_1)
-                .withCredentials(new AWSStaticCredentialsProvider(
-                        new BasicAWSCredentials("test", "test")))
+    public CognitoIdentityProviderClient mockCognitoClient() {
+        // Offline client for testing; dummy credentials are never sent anywhere
+        return CognitoIdentityProviderClient.builder()
+                .region(Region.US_EAST_2)
+                .credentialsProvider(StaticCredentialsProvider.create(
+                        AwsBasicCredentials.create("test", "test")))
                 .build();
     }
 
