@@ -24,7 +24,6 @@ export default function LoginPage() {
   const onSubmit = async (data) => {
     try {
       await login({
-        username: data.email, // Using email as username for demo
         email: data.email,
         password: data.password,
       })
@@ -161,16 +160,6 @@ export default function LoginPage() {
                 )}
               </button>
             </form>
-
-            {/* Demo Credentials */}
-            <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-              <h4 className="text-sm font-medium text-gray-900 mb-2">Demo Credentials:</h4>
-              <div className="text-xs text-gray-600 space-y-1">
-                <div><strong>Admin:</strong> admin@demo.com / password123</div>
-                <div><strong>Seller:</strong> seller@demo.com / password123</div>
-                <div><strong>Shopper:</strong> shopper@demo.com / password123</div>
-              </div>
-            </div>
 
             {/* Sign Up Link */}
             <div className="mt-6 text-center">

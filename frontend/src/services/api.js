@@ -221,7 +221,8 @@ api.interceptors.response.use(
 // Auth API: Cognito handles credentials; the backend owns the profile row,
 // linked to the Cognito `sub` claim of the access token.
 export const authAPI = {
-  getCurrentUser: () => api.get('/users/me'),
+  // 404 is expected right after sign-up (no profile row yet), so skip the error toast
+  getCurrentUser: () => api.get('/users/me', { skipNotFoundToast: true }),
   syncProfile: (profile) => api.post('/users', profile),
 }
 

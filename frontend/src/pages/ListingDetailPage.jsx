@@ -37,11 +37,8 @@ export default function ListingDetailPage() {
     ['listing', id],
     () => listingsAPI.getListingById(id),
     {
+      // The backend increments the view count as part of GET /listings/{id}
       enabled: !!id,
-      onSuccess: (data) => {
-        // Increment view count
-        listingsAPI.incrementViewCount(id).catch(() => {})
-      }
     }
   )
 
