@@ -224,7 +224,8 @@ public class CarListingService {
         dto.setSellerLocation(carListing.getSeller().getLocation());
         dto.setSellerPhone(carListing.getSeller().getPhoneNumber());
         dto.setStatus(carListing.getStatus());
-        dto.setImageUrls(carListing.getImageUrls());
+        // Copy while the session is open: open-in-view is off, so the lazy collection can't be read during JSON serialization
+        dto.setImageUrls(carListing.getImageUrls() == null ? new java.util.ArrayList<>() : new java.util.ArrayList<>(carListing.getImageUrls()));
         dto.setViewCount(carListing.getViewCount());
         dto.setCreatedAt(carListing.getCreatedAt());
         dto.setUpdatedAt(carListing.getUpdatedAt());
