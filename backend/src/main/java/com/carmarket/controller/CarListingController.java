@@ -4,7 +4,7 @@ package com.carmarket.controller;
 import com.carmarket.config.SecurityConfig;
 import com.carmarket.dto.CarListingDTO;
 import com.carmarket.model.ListingStatus;
-import com.carmarket.service.Temp.java.CarListingService;
+import com.carmarket.service.CarListingService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
