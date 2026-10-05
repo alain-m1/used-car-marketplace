@@ -107,7 +107,7 @@ export default function ListingDetailPage() {
   }
 
   const car = listing.data
-  const images = car.images || ['/api/placeholder/800/600']
+  const images = car.imageUrls?.length ? car.imageUrls : ['/placeholder-car.jpg']
 
   return (
     <div className="min-h-screen bg-gray-50">

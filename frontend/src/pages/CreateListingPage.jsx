@@ -12,7 +12,7 @@ import {
   MapPin,
   FileText
 } from 'lucide-react'
-import { listingsAPI } from '../services/api'
+import { listingsAPI, uploadAPI } from '../services/api'
 import toast from 'react-hot-toast'
 
 const CAR_MAKES = [
@@ -105,30 +105,41 @@ export default function CreateListingPage() {
     setIsSubmitting(true)
 
     try {
-      const formData = new FormData()
-      
-      // Add car details
-      Object.keys(data).forEach(key => {
-        if (data[key] !== '') {
-          formData.append(key, data[key])
-        }
-      })
+      // 1. Upload each photo to S3 (one request per image); the API returns CloudFront URLs
+      const imageUrls = []
+      for (const image of images) {
+        const { data: uploaded } = await uploadAPI.uploadImage(image.file)
+        imageUrls.push(uploaded.url)
+      }
 
-      // Add features
+      // 2. The backend stores only these fields, so fold the optional details into the
+      //    description text. The seller is taken from the sign-in token server-side.
       const validFeatures = features.filter(f => f.trim())
-      formData.append('features', JSON.stringify(validFeatures))
+      const details = [
+        data.bodyType && `Body type: ${data.bodyType}`,
+        data.fuelType && `Fuel: ${data.fuelType}`,
+        data.transmission && `Transmission: ${data.transmission}`,
+        data.color && `Color: ${data.color}`,
+        `Location: ${data.city}, ${data.state}`,
+        data.negotiable === 'false' ? 'Firm price' : 'Price negotiable',
+        validFeatures.length > 0 && `Features: ${validFeatures.join(', ')}`,
+      ].filter(Boolean).join(' | ')
 
-      // Add images
-      images.forEach((image, index) => {
-        formData.append('images', image.file)
+      const response = await listingsAPI.createListing({
+        title: `${data.year} ${data.make} ${data.model}`.slice(0, 100),
+        description: `${data.description.trim()}\n\n${details}`.slice(0, 2000),
+        price: Number(data.price),
+        mileage: Number(data.mileage),
+        year: Number(data.year),
+        make: data.make,
+        model: data.model.trim(),
+        imageUrls,
       })
-
-      const response = await listingsAPI.createListing(formData)
       
       toast.success('Listing created successfully!')
       navigate(`/listings/${response.data.id}`)
     } catch (error) {
-      toast.error('Failed to create listing. Please try again.')
+      toast.error(error.response?.data?.message || 'Failed to create listing. Please try again.')
     } finally {
       setIsSubmitting(false)
     }

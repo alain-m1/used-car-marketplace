@@ -5,7 +5,7 @@
 #
 # Required: SPRING_DATASOURCE_URL, DB_USERNAME, DB_PASSWORD (SSM secret), REDIS_HOST,
 #           AWS_REGION, AWS_COGNITO_USER_POOL_ID, AWS_COGNITO_CLIENT_ID,
-#           AWS_S3_BUCKET_NAME, CORS_ORIGINS
+#           AWS_S3_BUCKET_NAME, AWS_CLOUDFRONT_DOMAIN, CORS_ORIGINS
 server:
   port: ${SERVER_PORT:8080}
   forward-headers-strategy: framework   # behind the ALB
@@ -22,6 +22,12 @@ spring:
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 5   # db.t4g.micro has a small connection budget
+
+  servlet:
+    multipart:
+      # One image per request (the UI uploads photos one at a time)
+      max-file-size: 5MB
+      max-request-size: 6MB
 
   jpa:
     hibernate:
@@ -48,6 +54,8 @@ aws:
     client-id: ${AWS_COGNITO_CLIENT_ID}
   s3:
     bucket-name: ${AWS_S3_BUCKET_NAME}
+    # CloudFront domain that serves the (private) bucket, e.g. d1234abcd.cloudfront.net
+    cloudfront-domain: ${AWS_CLOUDFRONT_DOMAIN}
 
 management:
   endpoint:
