@@ -9,6 +9,7 @@ import com.carmarket.model.ListingStatus;
 import com.carmarket.model.User;
 import com.carmarket.repository.CarListingRepository;
 import com.carmarket.repository.UserRepository;
+import jakarta.persistence.criteria.Predicate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,10 +17,12 @@ import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -89,8 +92,27 @@ public class CarListingService {
         logger.debug("Filtering listings with criteria - Price: {}-{}, Year: {}-{}, Mileage: {}-{}, Make: {}, Model: {}",
                 minPrice, maxPrice, minYear, maxYear, minMileage, maxMileage, make, model);
 
-        return carListingRepository.findByFilters(minPrice, maxPrice, minYear, maxYear,
-                minMileage, maxMileage, make, model, pageable).map(this::convertToDTO);
+        // Only add predicates for filters that were supplied. Passing null parameters through a
+        // JPQL "(:x IS NULL OR ...)" query fails on PostgreSQL (untyped null / lower(bytea)).
+        Specification<CarListing> spec = (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            predicates.add(cb.equal(root.get("status"), ListingStatus.ACTIVE));
+            if (minPrice != null) predicates.add(cb.greaterThanOrEqualTo(root.get("price"), minPrice));
+            if (maxPrice != null) predicates.add(cb.lessThanOrEqualTo(root.get("price"), maxPrice));
+            if (minYear != null) predicates.add(cb.greaterThanOrEqualTo(root.get("year"), minYear));
+            if (maxYear != null) predicates.add(cb.lessThanOrEqualTo(root.get("year"), maxYear));
+            if (minMileage != null) predicates.add(cb.greaterThanOrEqualTo(root.get("mileage"), minMileage));
+            if (maxMileage != null) predicates.add(cb.lessThanOrEqualTo(root.get("mileage"), maxMileage));
+            if (make != null && !make.isBlank()) {
+                predicates.add(cb.like(cb.lower(root.get("make")), "%" + make.trim().toLowerCase() + "%"));
+            }
+            if (model != null && !model.isBlank()) {
+                predicates.add(cb.like(cb.lower(root.get("model")), "%" + model.trim().toLowerCase() + "%"));
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+
+        return carListingRepository.findAll(spec, pageable).map(this::convertToDTO);
     }
 
     @Transactional(readOnly = true)
