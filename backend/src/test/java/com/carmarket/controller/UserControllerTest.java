@@ -11,6 +11,7 @@ import com.carmarket.service.UserService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
@@ -34,6 +35,8 @@ import java.util.List;
 
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -265,6 +268,52 @@ class UserControllerTest {
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.email", is("updated@example.com")))
                 .andExpect(jsonPath("$.firstName", is("Updated")));
+    }
+
+    @Test
+    void updateUser_ShouldIgnoreRoleAndActiveFlag_WhenNonAdminUpdatesOwnProfile() throws Exception {
+        UserDTO request = new UserDTO();
+        request.setUsername("testuser");
+        request.setEmail("test@example.com");
+        request.setFirstName("Test");
+        request.setLastName("User");
+        request.setRole(UserRole.ADMIN);
+        request.setIsActive(true);
+
+        when(userService.updateUser(eq(1L), any(UserDTO.class))).thenReturn(testUser);
+
+        mockMvc.perform(put("/api/v1/users/1")
+                        .with(signedInAs(1L, "SHOPPER"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<UserDTO> sent = ArgumentCaptor.forClass(UserDTO.class);
+        verify(userService).updateUser(eq(1L), sent.capture());
+        assertNull(sent.getValue().getRole());
+        assertNull(sent.getValue().getIsActive());
+    }
+
+    @Test
+    void updateUser_ShouldKeepRole_WhenAdminUpdatesUser() throws Exception {
+        UserDTO request = new UserDTO();
+        request.setUsername("testuser");
+        request.setEmail("test@example.com");
+        request.setFirstName("Test");
+        request.setLastName("User");
+        request.setRole(UserRole.SELLER);
+
+        when(userService.updateUser(eq(1L), any(UserDTO.class))).thenReturn(testUser);
+
+        mockMvc.perform(put("/api/v1/users/1")
+                        .with(signedInAs(9L, "ADMIN"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<UserDTO> sent = ArgumentCaptor.forClass(UserDTO.class);
+        verify(userService).updateUser(eq(1L), sent.capture());
+        assertEquals(UserRole.SELLER, sent.getValue().getRole());
     }
 
     @Test

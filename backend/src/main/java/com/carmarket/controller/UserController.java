@@ -165,8 +165,15 @@ public class UserController {
             @Parameter(description = "User ID", required = true)
             @PathVariable Long id,
             @Parameter(description = "Updated user data", required = true)
-            @Valid @RequestBody UserDTO userDTO) {
+            @Valid @RequestBody UserDTO userDTO,
+            Authentication authentication) {
         logger.info("PUT /api/v1/users/{} - Updating user", id);
+        // Only an admin may change a role or activate/deactivate an account; ignore those fields for everyone else.
+        boolean isAdmin = authentication.getAuthorities().stream().anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()));
+        if (!isAdmin) {
+            userDTO.setRole(null);
+            userDTO.setIsActive(null);
+        }
         UserDTO updatedUser = userService.updateUser(id, userDTO);
         return ResponseEntity.ok(updatedUser);
     }

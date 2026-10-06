@@ -18,6 +18,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -39,6 +40,19 @@ public class CarListingController {
     @Autowired
     public CarListingController(CarListingService carListingService) {
         this.carListingService = carListingService;
+    }
+
+    /** Database id of the signed-in user, taken from the validated JWT (never from request parameters). */
+    private Long currentUserId(Authentication authentication) {
+        if (authentication != null && authentication.getPrincipal() instanceof SecurityConfig.CognitoPrincipal principal
+                && principal.getId() != null) {
+            return principal.getId();
+        }
+        throw new AccessDeniedException("No user profile is linked to this account yet");
+    }
+
+    private boolean isAdmin(Authentication authentication) {
+        return authentication.getAuthorities().stream().anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()));
     }
 
     @Operation(summary = "Get car listing by ID", description = "Retrieve a car listing by its ID and increment view count")
@@ -197,7 +211,7 @@ public class CarListingController {
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Listing updated successfully"),
             @ApiResponse(responseCode = "400", description = "Invalid input data"),
-            @ApiResponse(responseCode = "401", description = "User not authorized"),
+            @ApiResponse(responseCode = "403", description = "Not the owner of this listing"),
             @ApiResponse(responseCode = "404", description = "Listing not found")
     })
     @PutMapping("/{id}")
@@ -207,17 +221,17 @@ public class CarListingController {
             @PathVariable Long id,
             @Parameter(description = "Updated listing data", required = true)
             @Valid @RequestBody CarListingDTO listingDTO,
-            @Parameter(description = "User ID", required = true)
-            @RequestParam Long userId) {
+            Authentication authentication) {
         logger.info("PUT /api/v1/listings/{} - Updating listing", id);
-        CarListingDTO updatedListing = carListingService.updateListing(id, listingDTO, userId);
+        CarListingDTO updatedListing = carListingService.updateListing(
+                id, listingDTO, currentUserId(authentication), isAdmin(authentication));
         return ResponseEntity.ok(updatedListing);
     }
 
     @Operation(summary = "Update listing status", description = "Update the status of a car listing")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "204", description = "Status updated successfully"),
-            @ApiResponse(responseCode = "401", description = "User not authorized"),
+            @ApiResponse(responseCode = "403", description = "Not the owner of this listing"),
             @ApiResponse(responseCode = "404", description = "Listing not found")
     })
     @PatchMapping("/{id}/status")
@@ -227,17 +241,16 @@ public class CarListingController {
             @PathVariable Long id,
             @Parameter(description = "New status", required = true)
             @RequestParam ListingStatus status,
-            @Parameter(description = "User ID", required = true)
-            @RequestParam Long userId) {
+            Authentication authentication) {
         logger.info("PATCH /api/v1/listings/{}/status - Updating status to {}", id, status);
-        carListingService.updateListingStatus(id, status, userId);
+        carListingService.updateListingStatus(id, status, currentUserId(authentication), isAdmin(authentication));
         return ResponseEntity.noContent().build();
     }
 
     @Operation(summary = "Delete listing", description = "Delete a car listing")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "204", description = "Listing deleted successfully"),
-            @ApiResponse(responseCode = "401", description = "User not authorized"),
+            @ApiResponse(responseCode = "403", description = "Not the owner of this listing"),
             @ApiResponse(responseCode = "404", description = "Listing not found")
     })
     @DeleteMapping("/{id}")
@@ -245,10 +258,9 @@ public class CarListingController {
     public ResponseEntity<Void> deleteListing(
             @Parameter(description = "Listing ID", required = true)
             @PathVariable Long id,
-            @Parameter(description = "User ID", required = true)
-            @RequestParam Long userId) {
+            Authentication authentication) {
         logger.info("DELETE /api/v1/listings/{} - Deleting listing", id);
-        carListingService.deleteListing(id, userId);
+        carListingService.deleteListing(id, currentUserId(authentication), isAdmin(authentication));
         return ResponseEntity.noContent().build();
     }
 

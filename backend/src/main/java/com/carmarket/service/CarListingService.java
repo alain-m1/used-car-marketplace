@@ -3,7 +3,6 @@ package com.carmarket.service;
 
 import com.carmarket.dto.CarListingDTO;
 import com.carmarket.exception.ResourceNotFoundException;
-import com.carmarket.exception.UnauthorizedException;
 import com.carmarket.model.CarListing;
 import com.carmarket.model.ListingStatus;
 import com.carmarket.model.User;
@@ -18,6 +17,7 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -157,16 +157,13 @@ public class CarListingService {
     }
 
     @CacheEvict(value = "carListings", key = "#id")
-    public CarListingDTO updateListing(Long id, CarListingDTO listingDTO, Long userId) {
+    public CarListingDTO updateListing(Long id, CarListingDTO listingDTO, Long userId, boolean isAdmin) {
         logger.info("Updating car listing with ID: {} by user: {}", id, userId);
 
         CarListing existingListing = carListingRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Car listing not found with id: " + id));
 
-        // Check if user is the owner of the listing
-        if (!existingListing.getSeller().getId().equals(userId)) {
-            throw new UnauthorizedException("User is not authorized to update this listing");
-        }
+        requireOwnerOrAdmin(existingListing, userId, isAdmin);
 
         updateListingFields(existingListing, listingDTO);
         CarListing updatedListing = carListingRepository.save(existingListing);
@@ -176,16 +173,13 @@ public class CarListingService {
     }
 
     @CacheEvict(value = "carListings", key = "#id")
-    public void updateListingStatus(Long id, ListingStatus status, Long userId) {
+    public void updateListingStatus(Long id, ListingStatus status, Long userId, boolean isAdmin) {
         logger.info("Updating listing status for ID: {} to {} by user: {}", id, status, userId);
 
         CarListing listing = carListingRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Car listing not found with id: " + id));
 
-        // Check if user is the owner of the listing
-        if (!listing.getSeller().getId().equals(userId)) {
-            throw new UnauthorizedException("User is not authorized to update this listing");
-        }
+        requireOwnerOrAdmin(listing, userId, isAdmin);
 
         listing.setStatus(status);
         carListingRepository.save(listing);
@@ -193,19 +187,23 @@ public class CarListingService {
     }
 
     @CacheEvict(value = "carListings", key = "#id")
-    public void deleteListing(Long id, Long userId) {
+    public void deleteListing(Long id, Long userId, boolean isAdmin) {
         logger.info("Deleting car listing with ID: {} by user: {}", id, userId);
 
         CarListing listing = carListingRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Car listing not found with id: " + id));
 
-        // Check if user is the owner of the listing
-        if (!listing.getSeller().getId().equals(userId)) {
-            throw new UnauthorizedException("User is not authorized to delete this listing");
-        }
+        requireOwnerOrAdmin(listing, userId, isAdmin);
 
         carListingRepository.delete(listing);
         logger.info("Successfully deleted car listing with ID: {}", id);
+    }
+
+    /** Only the listing's seller (or an admin) may change it. userId comes from the validated token. */
+    private void requireOwnerOrAdmin(CarListing listing, Long userId, boolean isAdmin) {
+        if (!isAdmin && !listing.getSeller().getId().equals(userId)) {
+            throw new AccessDeniedException("You can only change your own listings");
+        }
     }
 
     @Transactional(readOnly = true)
