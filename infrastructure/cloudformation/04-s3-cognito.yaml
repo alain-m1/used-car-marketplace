@@ -218,6 +218,10 @@ Resources:
         - email
       UsernameConfiguration:
         CaseSensitive: false
+      # Auto-confirm self sign-ups (the app has no email-code screen). The function and
+      # its invoke permission are defined below.
+      LambdaConfig:
+        PreSignUp: !GetAtt CognitoTriggerFunction.Arn
       Schema:
         - Name: email
           AttributeDataType: String

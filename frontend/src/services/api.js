@@ -221,7 +221,8 @@ api.interceptors.response.use(
 // Auth API: Cognito handles credentials; the backend owns the profile row,
 // linked to the Cognito `sub` claim of the access token.
 export const authAPI = {
-  getCurrentUser: () => api.get('/users/me'),
+  // 404 is expected right after sign-up (no profile row yet), so skip the error toast
+  getCurrentUser: () => api.get('/users/me', { skipNotFoundToast: true }),
   syncProfile: (profile) => api.post('/users', profile),
 }
 
@@ -257,7 +258,8 @@ export const listingsAPI = {
   
   // Authenticated endpoints
   getListingsBySeller: (sellerId, params) => api.get(`/listings/seller/${sellerId}`, { params }),
-  createListing: (listingData, sellerId) => api.post('/listings', listingData, { params: { sellerId } }),
+  // The backend takes the seller from the signed-in user's token
+  createListing: (listingData) => api.post('/listings', listingData),
   updateListing: (id, listingData, userId) => api.put(`/listings/${id}`, listingData, { params: { userId } }),
   updateListingStatus: (id, status, userId) => api.patch(`/listings/${id}/status`, null, { params: { status, userId } }),
   deleteListing: (id, userId) => api.delete(`/listings/${id}`, { params: { userId } }),
@@ -284,33 +286,17 @@ export const messagesAPI = {
   getMessageCountForListing: (listingId) => api.get(`/messages/listing/${listingId}/count`),
 }
 
-// File upload API (for AWS S3)
+// File upload API: the backend stores each image in S3 and returns its CloudFront URL
 export const uploadAPI = {
-  uploadImage: (file, type = 'listing') => {
+  uploadImage: (file) => {
     const formData = new FormData()
     formData.append('file', file)
-    formData.append('type', type)
     
-    return api.post('/upload/image', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
+    return api.post('/uploads/images', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60000,
     })
   },
-  
-  uploadImages: (files, type = 'listing') => {
-    const formData = new FormData()
-    files.forEach((file, index) => {
-      formData.append(`files[${index}]`, file)
-    })
-    formData.append('type', type)
-    
-    return api.post('/upload/images', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    })
-  }
 }
 
 export default api

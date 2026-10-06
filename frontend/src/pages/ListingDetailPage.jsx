@@ -37,11 +37,8 @@ export default function ListingDetailPage() {
     ['listing', id],
     () => listingsAPI.getListingById(id),
     {
+      // The backend increments the view count as part of GET /listings/{id}
       enabled: !!id,
-      onSuccess: (data) => {
-        // Increment view count
-        listingsAPI.incrementViewCount(id).catch(() => {})
-      }
     }
   )
 
@@ -81,7 +78,7 @@ export default function ListingDetailPage() {
       return
     }
     // Navigate to messages or open contact modal
-    navigate(`/messages?seller=${listing.data.seller.id}`)
+    navigate(`/messages?seller=${listing.data.sellerId}`)
   }
 
   if (isLoading) {
@@ -107,7 +104,7 @@ export default function ListingDetailPage() {
   }
 
   const car = listing.data
-  const images = car.images || ['/api/placeholder/800/600']
+  const images = car.imageUrls?.length ? car.imageUrls : ['/placeholder-car.jpg']
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -294,7 +291,9 @@ export default function ListingDetailPage() {
                 </button>
                 <button
                   className="w-full btn btn-secondary"
-                  onClick={() => window.open(`tel:${car.seller?.phone}`, '_self')}
+                  disabled={!car.sellerPhone}
+                  title={car.sellerPhone ? undefined : 'The seller has not added a phone number'}
+                  onClick={() => window.open(`tel:${car.sellerPhone}`, '_self')}
                 >
                   <Phone className="h-4 w-4 mr-2" />
                   Call Seller
@@ -307,15 +306,17 @@ export default function ListingDetailPage() {
                 <div className="flex items-center space-x-3">
                   <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
                     <span className="text-gray-600 font-semibold">
-                      {car.seller?.name?.charAt(0) || 'S'}
+                      {car.sellerName?.charAt(0) || 'S'}
                     </span>
                   </div>
                   <div>
                     <div className="font-medium text-gray-900">
-                      {car.seller?.name || 'Seller'}
+                      {car.sellerName || 'Seller'}
                     </div>
                     <div className="text-sm text-gray-600">
-                      Member since {new Date(car.seller?.createdAt || car.createdAt).getFullYear()}
+                      {car.sellerLocation && car.sellerLocation !== 'Not specified'
+                        ? car.sellerLocation
+                        : `Listed ${new Date(car.createdAt).getFullYear()}`}
                     </div>
                   </div>
                 </div>

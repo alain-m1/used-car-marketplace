@@ -1,6 +1,7 @@
 // backend/src/main/java/com/carmarket/controller/CarListingController.java
 package com.carmarket.controller;
 
+import com.carmarket.config.SecurityConfig;
 import com.carmarket.dto.CarListingDTO;
 import com.carmarket.model.ListingStatus;
 import com.carmarket.service.CarListingService;
@@ -18,6 +19,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
@@ -180,8 +182,12 @@ public class CarListingController {
     public ResponseEntity<CarListingDTO> createListing(
             @Parameter(description = "Car listing data", required = true)
             @Valid @RequestBody CarListingDTO listingDTO,
-            @Parameter(description = "Seller ID", required = true)
-            @RequestParam Long sellerId) {
+            Authentication authentication) {
+        // The seller is always the signed-in user; the client cannot choose it.
+        Long sellerId = ((SecurityConfig.CognitoPrincipal) authentication.getPrincipal()).getId();
+        if (sellerId == null) {
+            throw new IllegalArgumentException("No profile is linked to this account yet");
+        }
         logger.info("POST /api/v1/listings - Creating new listing for seller ID: {}", sellerId);
         CarListingDTO createdListing = carListingService.createListing(listingDTO, sellerId);
         return ResponseEntity.status(HttpStatus.CREATED).body(createdListing);

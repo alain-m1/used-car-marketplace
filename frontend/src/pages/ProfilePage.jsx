@@ -25,9 +25,10 @@ export default function ProfilePage() {
 
   // Fetch user's listings
   const { data: userListings, isLoading: isLoadingListings } = useQuery(
-    'userListings',
-    () => listingsAPI.getUserListings(),
+    ['userListings', user?.id],
+    () => listingsAPI.getListingsBySeller(user.id, { size: 50 }),
     {
+      enabled: !!user?.id,
       staleTime: 5 * 60 * 1000,
     }
   )
@@ -44,7 +45,7 @@ export default function ProfilePage() {
       case 'profile':
         return <ProfileTab user={user} />
       case 'listings':
-        return <ListingsTab listings={userListings?.data || []} isLoading={isLoadingListings} />
+        return <ListingsTab listings={userListings?.data?.content || []} isLoading={isLoadingListings} />
       case 'favorites':
         return <FavoritesTab />
       case 'messages':

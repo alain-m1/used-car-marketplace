@@ -321,6 +321,9 @@ Resources:
             - Name: AWS_S3_BUCKET_NAME
               Value:
                 Fn::ImportValue: !Sub '${ProjectName}-${Environment}-CarImagesBucket'
+            - Name: AWS_CLOUDFRONT_DOMAIN
+              Value:
+                Fn::ImportValue: !Sub '${ProjectName}-${Environment}-CloudFrontDomain'
             # Browser origin = the ALB (the frontend calls /api on the same origin)
             - Name: CORS_ORIGINS
               Value: !Sub 'http://${ApplicationLoadBalancer.DNSName}'
