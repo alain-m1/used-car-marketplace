@@ -78,7 +78,7 @@ export default function ListingDetailPage() {
       return
     }
     // Navigate to messages or open contact modal
-    navigate(`/messages?seller=${listing.data.sellerId}`)
+    navigate(`/messages?seller=${listing.data.sellerId}&listing=${listing.data.id}`)
   }
 
   if (isLoading) {

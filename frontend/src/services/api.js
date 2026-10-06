@@ -279,8 +279,9 @@ export const messagesAPI = {
   getConversationBetweenUsers: (user1Id, user2Id, listingId) => api.get('/messages/conversation', { 
     params: { user1Id, user2Id, listingId } 
   }),
-  sendMessage: (messageData, senderId) => api.post('/messages', messageData, { params: { senderId } }),
-  markAsRead: (messageId, userId) => api.patch(`/messages/${messageId}/read`, null, { params: { userId } }),
+  // The backend takes the sender / reader from the signed-in user's token
+  sendMessage: (messageData) => api.post('/messages', messageData),
+  markAsRead: (messageId) => api.patch(`/messages/${messageId}/read`),
   markAllAsRead: (userId) => api.patch(`/messages/user/${userId}/read-all`),
   getUnreadCount: (userId) => api.get(`/messages/user/${userId}/unread-count`),
   getMessageCountForListing: (listingId) => api.get(`/messages/listing/${listingId}/count`),

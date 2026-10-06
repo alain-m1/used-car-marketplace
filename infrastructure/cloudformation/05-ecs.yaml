@@ -197,8 +197,9 @@ Resources:
       Port: 8080
       TargetType: ip
       HealthCheckPath: /actuator/health
-      HealthCheckIntervalSeconds: 30
-      HealthCheckTimeoutSeconds: 10
+      # /actuator/health includes the Redis check, which took 11s on the first call at 0.25 vCPU
+      HealthCheckIntervalSeconds: 60
+      HealthCheckTimeoutSeconds: 30
       HealthyThresholdCount: 2
       UnhealthyThresholdCount: 5
       TargetGroupAttributes:
@@ -321,6 +322,7 @@ Resources:
             - Name: AWS_S3_BUCKET_NAME
               Value:
                 Fn::ImportValue: !Sub '${ProjectName}-${Environment}-CarImagesBucket'
+            # Listing photos are written to S3 and served through this CloudFront domain
             - Name: AWS_CLOUDFRONT_DOMAIN
               Value:
                 Fn::ImportValue: !Sub '${ProjectName}-${Environment}-CloudFrontDomain'
@@ -387,7 +389,7 @@ Resources:
           Enable: true
           Rollback: true
       # Spring Boot on 0.25 vCPU needs a long warm-up before health checks count
-      HealthCheckGracePeriodSeconds: 240
+      HealthCheckGracePeriodSeconds: 420
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: ENABLED

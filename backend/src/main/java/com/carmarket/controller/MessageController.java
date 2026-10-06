@@ -2,6 +2,7 @@
 package com.carmarket.controller;
 
 import com.carmarket.dto.MessageDTO;
+import com.carmarket.config.SecurityConfig.CognitoPrincipal;
 import com.carmarket.service.MessageService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -16,7 +17,9 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -37,6 +40,19 @@ public class MessageController {
         this.messageService = messageService;
     }
 
+    /** Database id of the signed-in user, taken from the validated JWT (never from request parameters). */
+    private Long currentUserId(Authentication authentication) {
+        if (authentication != null && authentication.getPrincipal() instanceof CognitoPrincipal principal
+                && principal.getId() != null) {
+            return principal.getId();
+        }
+        throw new AccessDeniedException("No user profile is linked to this account yet");
+    }
+
+    private boolean isAdmin(Authentication authentication) {
+        return authentication.getAuthorities().stream().anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()));
+    }
+
     @Operation(summary = "Get message by ID", description = "Retrieve a message by its ID")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Message found successfully"),
@@ -46,9 +62,14 @@ public class MessageController {
     @PreAuthorize("hasRole('USER')")
     public ResponseEntity<MessageDTO> getMessageById(
             @Parameter(description = "Message ID", required = true)
-            @PathVariable Long id) {
+            @PathVariable Long id,
+            Authentication authentication) {
         logger.info("GET /api/v1/messages/{} - Fetching message by ID", id);
         MessageDTO message = messageService.getMessageById(id);
+        Long me = currentUserId(authentication);
+        if (!isAdmin(authentication) && !me.equals(message.getSenderId()) && !me.equals(message.getRecipientId())) {
+            throw new AccessDeniedException("Not a participant of this message");
+        }
         return ResponseEntity.ok(message);
     }
 
@@ -150,7 +171,12 @@ public class MessageController {
             @Parameter(description = "Second user ID", required = true)
             @RequestParam Long user2Id,
             @Parameter(description = "Car listing ID", required = true)
-            @RequestParam Long listingId) {
+            @RequestParam Long listingId,
+            Authentication authentication) {
+        Long me = currentUserId(authentication);
+        if (!isAdmin(authentication) && !me.equals(user1Id) && !me.equals(user2Id)) {
+            throw new AccessDeniedException("Not a participant of this conversation");
+        }
         logger.info("GET /api/v1/messages/conversation - Fetching conversation between users {} and {} for listing {}",
                 user1Id, user2Id, listingId);
         List<MessageDTO> messages = messageService.getConversationBetweenUsers(user1Id, user2Id, listingId);
@@ -168,8 +194,8 @@ public class MessageController {
     public ResponseEntity<MessageDTO> sendMessage(
             @Parameter(description = "Message data", required = true)
             @Valid @RequestBody MessageDTO messageDTO,
-            @Parameter(description = "Sender ID", required = true)
-            @RequestParam Long senderId) {
+            Authentication authentication) {
+        Long senderId = currentUserId(authentication);
         logger.info("POST /api/v1/messages - Sending message from user {} to user {} for listing {}",
                 senderId, messageDTO.getRecipientId(), messageDTO.getCarListingId());
         MessageDTO sentMessage = messageService.sendMessage(messageDTO, senderId);
@@ -187,8 +213,8 @@ public class MessageController {
     public ResponseEntity<Void> markAsRead(
             @Parameter(description = "Message ID", required = true)
             @PathVariable Long messageId,
-            @Parameter(description = "User ID", required = true)
-            @RequestParam Long userId) {
+            Authentication authentication) {
+        Long userId = currentUserId(authentication);
         logger.info("PATCH /api/v1/messages/{}/read - Marking message as read by user {}", messageId, userId);
         messageService.markAsRead(messageId, userId);
         return ResponseEntity.noContent().build();

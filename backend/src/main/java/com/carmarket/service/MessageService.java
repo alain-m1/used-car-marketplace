@@ -117,6 +117,10 @@ public class MessageService {
         logger.info("Sending message from user ID: {} to user ID: {} for listing ID: {}",
                 senderId, messageDTO.getRecipientId(), messageDTO.getCarListingId());
 
+        if (senderId.equals(messageDTO.getRecipientId())) {
+            throw new IllegalArgumentException("You cannot send a message to yourself");
+        }
+
         User sender = userRepository.findById(senderId)
                 .orElseThrow(() -> new ResourceNotFoundException("Sender not found with id: " + senderId));
 
